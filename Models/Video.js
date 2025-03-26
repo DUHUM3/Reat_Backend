@@ -16,10 +16,12 @@ const videoSchema = new mongoose.Schema({
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
   series: { type: mongoose.Schema.Types.ObjectId, ref: 'Series' },
   url: { type: String, required: true },
+  thumbnail: { type: String }, // 🔹 صورة الغلاف
   uploadedAt: { type: Date, default: Date.now },
-  views: { type: Number, default: 0 }, // 🔹 حقل عدد المشاهدات
-  rating: { type: Number, default: 1, min: 1, max: 1 } // 🔹 منح الفيديو نجمة واحدة دائمًا
+  views: { type: Number, default: 0 },
+  rating: { type: Number, default: 1, min: 1, max: 1 }
 });
+
 
 // 🔴 منع تكرار اسم الحلقة داخل نفس المسلسل
 videoSchema.index({ title: 1, series: 1 }, { unique: true });
@@ -33,11 +35,11 @@ videoSchema.pre('save', function (next) {
 
 const Video = mongoose.model('Video', videoSchema);
 
-// 🟢 Series Model (المسلسلات)
-const seriesSchema = new mongoose.Schema({
-  title: { type: String, required: true, unique: true }, // 🛑 اسم المسلسل يجب أن يكون فريدًا
+const seriesSchema = new mongoose.Schema({ 
+  title: { type: String, required: true, unique: true },
   description: { type: String },
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
+  imageUrl: { type: String }, // 🔹 رابط صورة المسلسل
   episodes: [
     {
       title: { type: String, required: true },
@@ -47,6 +49,7 @@ const seriesSchema = new mongoose.Schema({
   ],
   createdAt: { type: Date, default: Date.now }
 });
+
 
 // 🔴 منع تكرار اسم الحلقة داخل نفس المسلسل
 seriesSchema.index({ 'episodes.title': 1, title: 1 }, { unique: true });

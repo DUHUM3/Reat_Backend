@@ -10,8 +10,16 @@ const router = express.Router();
 // 🟢 إعداد multer لتخزين الملفات داخل مجلد السلسلة
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const seriesName = req.body.seriesName || 'default_series';
-        const uploadPath = `uploads/videos/${seriesName}/`;
+        let uploadPath;
+
+        if (file.mimetype.startsWith('video/')) {
+            const seriesName = req.body.seriesName || 'default_series';
+            uploadPath = `uploads/videos/${seriesName}/`;
+        } else if (file.mimetype.startsWith('image/')) {
+            uploadPath = `uploads/thumbnails/`; // 🔹 تخزين الصور في مجلد منفصل
+        } else {
+            return cb(new Error('نوع الملف غير مدعوم'), false);
+        }
 
         if (!fs.existsSync(uploadPath)) {
             fs.mkdirSync(uploadPath, { recursive: true });
@@ -24,7 +32,9 @@ const storage = multer.diskStorage({
     }
 });
 
+// 🟢 إعداد `multer` لدعم الفيديو والصورة
 const upload = multer({ storage });
+
 const categoryStorage = multer.diskStorage({
     destination: (req, file, cb) => {
         const uploadPath = 'uploads/categories/';
@@ -40,6 +50,20 @@ const categoryStorage = multer.diskStorage({
 
 const uploadCategoryImage = multer({ storage: categoryStorage });
 
+const seriesImageStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadPath = 'uploads/series_images/';
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+        }
+        cb(null, uploadPath);
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + path.extname(file.originalname)); // إضافة امتداد الصورة
+    }
+});
+
+const uploadSeriesImage = multer({ storage: seriesImageStorage });
 // 🟢 إضافة قسم جديد
 router.post('/categories', uploadCategoryImage.single('image'), async (req, res) => {
     try {
@@ -67,7 +91,7 @@ router.post('/categories', uploadCategoryImage.single('image'), async (req, res)
 
 
 // 🟢 إضافة مسلسل جديد
-router.post('/series', async (req, res) => {
+router.post('/series', uploadSeriesImage.single('image'), async (req, res) => {
     try {
         const { title, description, category } = req.body;
 
@@ -77,7 +101,9 @@ router.post('/series', async (req, res) => {
             return res.status(400).json({ error: 'اسم المسلسل موجود بالفعل، لا يمكن تكراره' });
         }
 
-        const series = new Series({ title, description, category });
+        const imageUrl = req.file ? `/uploads/series_images/${req.file.filename}` : null;
+
+        const series = new Series({ title, description, category, imageUrl });
         await series.save();
         res.status(201).json({ message: 'تم إنشاء المسلسل بنجاح', series });
 
@@ -86,32 +112,40 @@ router.post('/series', async (req, res) => {
     }
 });
 
-// 🟢 إضافة فيديو مع رفع ملف
-router.post('/videos', upload.single('videos'), async (req, res) => {
+router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }]), async (req, res) => {
     try {
-        const { title, category, series, url } = req.body;
+        const { title, category, series } = req.body;
 
-        // التحقق من أن الفيديو مرتبط إما بقسم أو مسلسل
+        // التحقق من أن الفيديو مرتبط بقسم أو مسلسل
         if (!category && !series) {
             return res.status(400).json({ error: 'يجب أن يكون الفيديو مرتبطًا إما بقسم أو مسلسل' });
         }
 
-        // التحقق من رفع الملف
-        if (!req.file) {
+        // التحقق من رفع الفيديو
+        if (!req.files || !req.files.video) {
             return res.status(400).json({ error: 'يجب رفع ملف فيديو' });
         }
 
-        const filename = req.file.filename;
-        const videoPath = req.file.path;
+        const videoFile = req.files.video[0];
+        const thumbnailFile = req.files.thumbnail ? req.files.thumbnail[0] : null;
 
-        const video = new Video({ title, filename, category, series, url: videoPath });
+        const video = new Video({
+            title,
+            filename: videoFile.filename,
+            category,
+            series,
+            url: videoFile.path,
+            thumbnail: thumbnailFile ? thumbnailFile.path : null // 🔹 حفظ مسار الصورة إذا تم رفعها
+        });
+
         await video.save();
 
-        res.status(201).json({ message: 'تم إنشاء الفيديو ورفعه بنجاح', video });
+        res.status(201).json({ message: 'تم إنشاء الفيديو ورفع الغلاف بنجاح', video });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 router.get('/all-data', async (req, res) => {
     try {
@@ -136,14 +170,15 @@ router.get('/latest-videos', async (req, res) => {
             return res.status(404).json({ error: 'القسم "films" غير موجود' });
         }
 
-        // جلب آخر 10 فيديوهات من قسم "films"
+        // جلب آخر 10 فيديوهات من قسم "films" مع جميع التفاصيل
         const filmsVideos = await Video.find({ category: category._id })
-            .sort({ createdAt: -1 }) // ترتيب الفيديوهات حسب تاريخ الإضافة (الأحدث أولاً)
+            .sort({ createdAt: -1 })
             .limit(10);
 
-        // جلب آخر 10 فيديوهات تم إضافتها للمسلسلات
-        const seriesVideos = await Video.find({ series: { $ne: null } }) // الفيديوهات التي لها مسلسل
-            .sort({ createdAt: -1 }) // ترتيب الفيديوهات حسب تاريخ الإضافة (الأحدث أولاً)
+        // جلب آخر 10 فيديوهات من المسلسلات مع جميع التفاصيل + معلومات المسلسل
+        const seriesVideos = await Video.find({ series: { $ne: null } })
+            .populate('series', 'title imageUrl') // جلب معلومات المسلسل (العنوان والصورة)
+            .sort({ createdAt: -1 })
             .limit(10);
 
         // إرسال البيانات
@@ -156,6 +191,8 @@ router.get('/latest-videos', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
 
 // 🟢 عرض كل فيديوهات قسم معين أو مسلسل معين
 router.get('/videos-by-category-or-series', async (req, res) => {
@@ -188,6 +225,24 @@ router.get('/videos-by-category-or-series', async (req, res) => {
 
         res.status(200).json({ videos });
 
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 🟢 مسار لعرض جميع الأقسام
+router.get('/categories', async (req, res) => {
+    try {
+        // استرجاع جميع الأقسام من قاعدة البيانات
+        const categories = await Category.find();
+
+        // التحقق مما إذا كانت الأقسام موجودة
+        if (!categories || categories.length === 0) {
+            return res.status(404).json({ message: 'لا توجد أقسام' });
+        }
+
+        // إرسال الأقسام
+        res.status(200).json({ categories });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
