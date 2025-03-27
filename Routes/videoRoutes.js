@@ -3,9 +3,14 @@ const mongoose = require('mongoose');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 const { Category, Video, Series } = require('../Models/Video');
 
 const router = express.Router();
+
+// متغيرات تليجرام
+const TELEGRAM_BOT_TOKEN = '7943857168:AAF9w-uvBeCKUFrWuXgTn_z2IL2m_xhMfCE';
+const TELEGRAM_CHANNEL_ID = '@myupload121';
 
 // 🟢 إعداد multer لتخزين الملفات داخل مجلد السلسلة
 const storage = multer.diskStorage({
@@ -33,39 +38,40 @@ const storage = multer.diskStorage({
 });
 
 // 🟢 إعداد `multer` لدعم الفيديو والصورة
-const upload = multer({ storage });
-
-const categoryStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadPath = 'uploads/categories/';
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
+const upload = multer({ storage }); 
+// 🟢 إضافة وظيفة لإرسال الصور إلى تليجرام
+const sendPhotoToTelegram = async (photoPath) => {
+    try {
+        if (!fs.existsSync(photoPath)) {
+            console.error('File not found:', photoPath);
+            throw new Error('File not found');
         }
-        cb(null, uploadPath);
-    },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + path.extname(file.originalname));
+
+        const fileStream = fs.createReadStream(photoPath);
+        const response = await axios.post(
+            `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`,
+            {
+                chat_id: TELEGRAM_CHANNEL_ID,
+                photo: fileStream
+            },
+            {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            }
+        );
+
+        return response.data;
+    } catch (error) {
+        console.error('Error sending photo to Telegram:', error.message);
+        throw new Error('Failed to send photo to Telegram');
     }
-});
+};
+ 
+ 
 
-const uploadCategoryImage = multer({ storage: categoryStorage });
-
-const seriesImageStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadPath = 'uploads/series_images/';
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
-        cb(null, uploadPath);
-    },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + path.extname(file.originalname)); // إضافة امتداد الصورة
-    }
-});
-
-const uploadSeriesImage = multer({ storage: seriesImageStorage });
-// 🟢 إضافة قسم جديد
-router.post('/categories', uploadCategoryImage.single('image'), async (req, res) => {
+// 🟢 إضافة قسم جديد 
+router.post('/categories', upload.single('image'), async (req, res) => {
     try {
         const { name, description } = req.body;
 
@@ -78,6 +84,11 @@ router.post('/categories', uploadCategoryImage.single('image'), async (req, res)
         // 🟢 حفظ مسار الصورة إذا تم رفعها
         const imagePath = req.file ? req.file.path : null;
 
+        // إرسال الصورة إلى تليجرام إذا تم رفعها
+        if (imagePath) {
+            await sendPhotoToTelegram(imagePath);
+        }
+
         const category = new Category({ name, description, image: imagePath });
         await category.save();
         
@@ -89,9 +100,8 @@ router.post('/categories', uploadCategoryImage.single('image'), async (req, res)
 });
 
 
-
-// 🟢 إضافة مسلسل جديد
-router.post('/series', uploadSeriesImage.single('image'), async (req, res) => {
+// 🟢 إضافة مسلسل جديد 
+router.post('/series', upload.single('image'), async (req, res) => {
     try {
         const { title, description, category } = req.body;
 
@@ -103,6 +113,11 @@ router.post('/series', uploadSeriesImage.single('image'), async (req, res) => {
 
         const imageUrl = req.file ? `/uploads/series_images/${req.file.filename}` : null;
 
+        // إرسال الصورة إلى تليجرام إذا تم رفعها
+        if (imageUrl) {
+            await sendPhotoToTelegram(imageUrl);
+        }
+
         const series = new Series({ title, description, category, imageUrl });
         await series.save();
         res.status(201).json({ message: 'تم إنشاء المسلسل بنجاح', series });
@@ -112,6 +127,7 @@ router.post('/series', uploadSeriesImage.single('image'), async (req, res) => {
     }
 });
 
+// 🟢 إضافة فيديو
 router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }]), async (req, res) => {
     try {
         const { title, category, series } = req.body;
@@ -139,6 +155,11 @@ router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }])
         });
 
         await video.save();
+
+        // إرسال الصورة المصغرة إلى تليجرام إذا تم رفعها
+        if (thumbnailFile) {
+            await sendPhotoToTelegram(thumbnailFile.path);
+        }
 
         res.status(201).json({ message: 'تم إنشاء الفيديو ورفع الغلاف بنجاح', video });
     } catch (error) {
