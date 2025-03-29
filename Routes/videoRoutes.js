@@ -93,8 +93,8 @@ router.get('/videos/:id', async (req, res) => {
                 views: video.views,
                 rating: video.rating,
                 uploadedAt: video.uploadedAt,
-                url: `https://ucarecdn.com/${video.url}/`, // 🔹 رابط الفيديو
-                thumbnail: `https://ucarecdn.com/${video.thumbnail}/` // 🔹 رابط الصورة
+                url: `${video.url}/`, // 🔹 رابط الفيديو
+                thumbnail: `${video.thumbnail}/` // 🔹 رابط الصورة
             }
         });
     } catch (error) {
