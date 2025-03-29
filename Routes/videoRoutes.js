@@ -260,27 +260,28 @@ router.get('/all-data', async (req, res) => {
 // 🟢 عرض آخر 10 فيديوهات من قسم "films" وآخر 10 فيديوهات تم إضافتها للمسلسلات في روت واحد
 router.get('/latest-videos', async (req, res) => {
     try {
-        // 🔹 جلب القسم الرئيسي "films"
+        // جلب القسم الذي اسمه "films"
         const category = await Category.findOne({ name: 'films' });
         if (!category) {
             return res.status(404).json({ error: 'القسم "films" غير موجود' });
         }
 
-        // 🔹 جلب جميع الأقسام الفرعية التابعة له
-        const subcategories = await Category.find({ parent: category._id }).select('_id');
-
-        if (subcategories.length === 0) {
-            return res.status(404).json({ error: 'لا توجد أقسام فرعية في قسم "films"' });
-        }
-
-        const subcategoryIds = subcategories.map(sub => sub._id);
-
-        // 🔹 جلب آخر 10 فيديوهات من الأقسام الفرعية
-        const videos = await Video.find({ category: { $in: subcategoryIds } })
+        // جلب آخر 10 فيديوهات من قسم "films" مع جميع التفاصيل
+        const filmsVideos = await Video.find({ category: category._id })
             .sort({ createdAt: -1 })
             .limit(10);
 
-        res.status(200).json({ videos });
+        // جلب آخر 10 فيديوهات من المسلسلات مع جميع التفاصيل + معلومات المسلسل
+        const seriesVideos = await Video.find({ series: { $ne: null } })
+            .populate('series', 'title imageUrl') // جلب معلومات المسلسل (العنوان والصورة)
+            .sort({ createdAt: -1 })
+            .limit(10);
+
+        // إرسال البيانات
+        res.status(200).json({
+            filmsVideos,
+            seriesVideos
+        });
 
     } catch (error) {
         res.status(500).json({ error: error.message });
