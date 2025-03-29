@@ -344,6 +344,7 @@ router.get('/categories', async (req, res) => {
     }
 });
 
+
 // 🟢 مسار لعرض جميع الأقسام الفرعية لقسم معين
 router.get('/categories/:parentId/subcategories', async (req, res) => {
     try {
@@ -368,6 +369,73 @@ router.get('/categories/:parentId/subcategories', async (req, res) => {
     }
 });
 
+
+router.put('/videos/:id/view', async (req, res) => {
+    try {
+        const video = await Video.findByIdAndUpdate(
+            req.params.id,
+            { $inc: { views: 1 } }, // زيادة المشاهدات بمقدار 1
+            { new: true } // إرجاع العنصر بعد التحديث
+        );
+        if (!video) return res.status(404).json({ message: "Video not found" });
+        res.json(video);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.put('/videos/:id/rate', async (req, res) => {
+    try {
+        const video = await Video.findByIdAndUpdate(
+            req.params.id,
+            { rating: 1 }, // تثبيت التقييم عند 1
+            { new: true }
+        );
+        if (!video) return res.status(404).json({ message: "Video not found" });
+        res.json(video);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.get('/videos/:id/suggestions', async (req, res) => {
+    try {
+        const videoId = req.params.id;
+        const video = await Video.findById(videoId);
+
+        if (!video) {
+            return res.status(404).json({ message: 'الفيديو غير موجود' });
+        }
+
+        let query = {};
+
+        // إذا كان الفيديو مرتبطًا بمسلسل، نقترح فيديوهات من نفس المسلسل
+        if (video.series) {
+            query.series = video.series;
+        } else if (video.category) {
+            // إذا لم يكن مرتبطًا بمسلسل، نقترح فيديوهات من نفس الفئة
+            query.category = video.category;
+        }
+
+        // استثناء الفيديو الأصلي من النتائج
+        query._id = { $ne: video._id };
+
+        // جلب 10 فيديوهات مقترحة بناءً على نفس الفئة أو المسلسل
+        const suggestedVideos = await Video.find(query)
+            .sort({ views: -1 }) // ترتيب الفيديوهات بناءً على عدد المشاهدات
+            .limit(10);
+
+        // التحقق إذا كانت القائمة فارغة
+        if (suggestedVideos.length === 0) {
+            return res.status(404).json({ message: 'لا توجد فيديوهات مقترحة حالياً' });
+        }
+
+        res.status(200).json({ suggestedVideos });
+    } catch (error) {
+        console.error('Error fetching suggested videos:', error);
+        res.status(500).json({ message: 'حدث خطأ أثناء جلب الفيديوهات المقترحة' });
+    }
+});
 
 
 
