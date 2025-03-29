@@ -5,12 +5,12 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { Category, Video, Series } = require('../Models/Video');
-
+const FormData = require('form-data'); // ✅ تأكد من استيراد FormData بشكل صحيح
 const router = express.Router();
 
-// متغيرات تليجرام
-const TELEGRAM_BOT_TOKEN = '7943857168:AAF9w-uvBeCKUFrWuXgTn_z2IL2m_xhMfCE';
-const TELEGRAM_CHANNEL_ID = '@myupload121';
+// متغيرات Uploadcare
+const UPLOADCARE_PUBLIC_KEY = '0cb9675c5c475bdeeca9'; // استخدم Public Key لرفع الملفات
+const UPLOADCARE_API_URL = 'https://upload.uploadcare.com/base/';
 
 // 🟢 إعداد multer لتخزين الملفات داخل مجلد السلسلة
 const storage = multer.diskStorage({
@@ -38,106 +38,83 @@ const storage = multer.diskStorage({
 });
 
 // 🟢 إعداد `multer` لدعم الفيديو والصورة
-const upload = multer({ storage }); 
-// 🟢 إضافة وظيفة لإرسال الصور إلى تليجرام
-const sendPhotoToTelegram = async (photoPath) => {
-    try {
-        if (!fs.existsSync(photoPath)) {
-            console.error('File not found:', photoPath);
-            throw new Error('File not found');
-        }
+const upload = multer({ storage });
 
-        const fileStream = fs.createReadStream(photoPath);
+// 🟢 إضافة وظيفة لرفع الملفات إلى Uploadcare
+const uploadToUploadcare = async (filePath) => {
+    try {
+        const fileStream = fs.createReadStream(filePath);
+        const formData = new FormData();
+        formData.append('file', fileStream);
+        formData.append('UPLOADCARE_PUB_KEY', UPLOADCARE_PUBLIC_KEY);
+        formData.append('UPLOADCARE_STORE', 'auto');
+
         const response = await axios.post(
-            `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`,
+            UPLOADCARE_API_URL,
+            formData,
             {
-                chat_id: TELEGRAM_CHANNEL_ID,
-                photo: fileStream
-            },
-            {
-                headers: {
-                    'Content-Type': 'multipart/form-data'
-                }
+                headers: formData.getHeaders()
             }
         );
 
-        return response.data;
+        if (response.data && response.data.file) {
+            // ✅ إرجاع الرابط الكامل بدلاً من الـ UUID فقط
+            return `https://ucarecdn.com/${response.data.file}/`;
+        } else {
+            throw new Error('فشل رفع الملف');
+        }
     } catch (error) {
-        console.error('Error sending photo to Telegram:', error.message);
-        throw new Error('Failed to send photo to Telegram');
+        console.error('Error uploading to Uploadcare:', error.message);
+        if (error.response) {
+            console.error('Error response from Uploadcare:', error.response.data);
+        }
+        throw new Error('فشل رفع الملف إلى Uploadcare');
     }
 };
- 
- 
 
-// 🟢 إضافة قسم جديد 
-router.post('/categories', upload.single('image'), async (req, res) => {
+ // 🟢 مسار جلب تفاصيل الفيديو حسب الـ ID
+router.get('/videos/:id', async (req, res) => {
     try {
-        const { name, description } = req.body;
+        const videoId = req.params.id;
+        const video = await Video.findById(videoId);
 
-        // 🔴 التحقق من أن القسم غير موجود مسبقًا
-        const existingCategory = await Category.findOne({ name });
-        if (existingCategory) {
-            return res.status(400).json({ error: 'اسم القسم موجود بالفعل، لا يمكن تكراره' });
+        if (!video) {
+            return res.status(404).json({ message: 'الفيديو غير موجود' });
         }
 
-        // 🟢 حفظ مسار الصورة إذا تم رفعها
-        const imagePath = req.file ? req.file.path : null;
-
-        // إرسال الصورة إلى تليجرام إذا تم رفعها
-        if (imagePath) {
-            await sendPhotoToTelegram(imagePath);
-        }
-
-        const category = new Category({ name, description, image: imagePath });
-        await category.save();
-        
-        res.status(201).json({ message: 'تم إنشاء القسم بنجاح', category });
-
+        // ✅ إرجاع التفاصيل مع روابط الفيديو والصورة
+        res.json({
+            message: 'تم جلب تفاصيل الفيديو بنجاح',
+            video: {
+                _id: video._id,
+                title: video.title,
+                filename: video.filename,
+                category: video.category,
+                views: video.views,
+                rating: video.rating,
+                uploadedAt: video.uploadedAt,
+                url: `https://ucarecdn.com/${video.url}/`, // 🔹 رابط الفيديو
+                thumbnail: `https://ucarecdn.com/${video.thumbnail}/` // 🔹 رابط الصورة
+            }
+        });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Error fetching video details:', error);
+        res.status(500).json({ message: 'حدث خطأ أثناء جلب تفاصيل الفيديو' });
     }
 });
 
+ 
 
-// 🟢 إضافة مسلسل جديد 
-router.post('/series', upload.single('image'), async (req, res) => {
-    try {
-        const { title, description, category } = req.body;
-
-        // 🔴 التحقق من أن المسلسل غير موجود مسبقًا
-        const existingSeries = await Series.findOne({ title });
-        if (existingSeries) {
-            return res.status(400).json({ error: 'اسم المسلسل موجود بالفعل، لا يمكن تكراره' });
-        }
-
-        const imageUrl = req.file ? `/uploads/series_images/${req.file.filename}` : null;
-
-        // إرسال الصورة إلى تليجرام إذا تم رفعها
-        if (imageUrl) {
-            await sendPhotoToTelegram(imageUrl);
-        }
-
-        const series = new Series({ title, description, category, imageUrl });
-        await series.save();
-        res.status(201).json({ message: 'تم إنشاء المسلسل بنجاح', series });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 
 // 🟢 إضافة فيديو
 router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }]), async (req, res) => {
     try {
         const { title, category, series } = req.body;
 
-        // التحقق من أن الفيديو مرتبط بقسم أو مسلسل
         if (!category && !series) {
             return res.status(400).json({ error: 'يجب أن يكون الفيديو مرتبطًا إما بقسم أو مسلسل' });
         }
 
-        // التحقق من رفع الفيديو
         if (!req.files || !req.files.video) {
             return res.status(400).json({ error: 'يجب رفع ملف فيديو' });
         }
@@ -145,27 +122,82 @@ router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }])
         const videoFile = req.files.video[0];
         const thumbnailFile = req.files.thumbnail ? req.files.thumbnail[0] : null;
 
+        // رفع الفيديو إلى Uploadcare
+        const videoFileUrl = await uploadToUploadcare(videoFile.path);
+
+        // رفع الصورة المصغرة إذا كانت موجودة
+        let thumbnailUrl = null;
+        if (thumbnailFile) {
+            thumbnailUrl = await uploadToUploadcare(thumbnailFile.path);
+        }
+
         const video = new Video({
             title,
             filename: videoFile.filename,
             category,
             series,
-            url: videoFile.path,
-            thumbnail: thumbnailFile ? thumbnailFile.path : null // 🔹 حفظ مسار الصورة إذا تم رفعها
+            url: videoFileUrl,
+            thumbnail: thumbnailUrl // 🔹 حفظ الرابط الخاص بالصورة المصغرة
         });
 
         await video.save();
-
-        // إرسال الصورة المصغرة إلى تليجرام إذا تم رفعها
-        if (thumbnailFile) {
-            await sendPhotoToTelegram(thumbnailFile.path);
-        }
 
         res.status(201).json({ message: 'تم إنشاء الفيديو ورفع الغلاف بنجاح', video });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+// 🟢 إضافة قسم جديد
+router.post('/categories', upload.single('image'), async (req, res) => {
+    try {
+        const { name, description } = req.body;
+
+        const existingCategory = await Category.findOne({ name });
+        if (existingCategory) {
+            return res.status(400).json({ error: 'اسم القسم موجود بالفعل، لا يمكن تكراره' });
+        }
+
+        const imagePath = req.file ? req.file.path : null;
+
+        // رفع الصورة إلى Uploadcare إذا كانت موجودة
+        let imageUrl = null;
+        if (imagePath) {
+            imageUrl = await uploadToUploadcare(imagePath);
+        }
+
+        const category = new Category({ name, description, image: imageUrl });
+        await category.save();
+
+        res.status(201).json({ message: 'تم إنشاء القسم بنجاح', category });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 🟢 إضافة مسلسل جديد
+router.post('/series', upload.single('image'), async (req, res) => {
+    try {
+        const { title, description, category } = req.body;
+
+        const existingSeries = await Series.findOne({ title });
+        if (existingSeries) {
+            return res.status(400).json({ error: 'اسم المسلسل موجود بالفعل، لا يمكن تكراره' });
+        }
+
+        const imageUrl = req.file ? await uploadToUploadcare(req.file.path) : null;
+
+        const series = new Series({ title, description, category, imageUrl });
+        await series.save();
+
+        res.status(201).json({ message: 'تم إنشاء المسلسل بنجاح', series });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+ 
 
 
 router.get('/all-data', async (req, res) => {
