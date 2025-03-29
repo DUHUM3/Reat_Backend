@@ -4,7 +4,20 @@ const mongoose = require('mongoose');
 const categorySchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true }, 
   description: { type: String },
-  image: { type: String } // 🔹 إضافة حقل الصورة
+  image: { type: String }, // 🔹 صورة القسم
+  parent: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null }, // 🔹 القسم الرئيسي
+  subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }] // 🔹 الأقسام الفرعية
+});
+
+// تحديث القسم الرئيسي لإضافة القسم الفرعي تلقائيًا
+categorySchema.pre('save', async function (next) {
+  if (this.parent) {
+    await mongoose.model('Category').updateOne(
+      { _id: this.parent },
+      { $addToSet: { subcategories: this._id } }
+    );
+  }
+  next();
 });
 
 const Category = mongoose.model('Category', categorySchema);

@@ -106,13 +106,24 @@ router.get('/videos/:id', async (req, res) => {
  
 
 
-// 🟢 إضافة فيديو
 router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }]), async (req, res) => {
     try {
         const { title, category, series } = req.body;
 
         if (!category && !series) {
-            return res.status(400).json({ error: 'يجب أن يكون الفيديو مرتبطًا إما بقسم أو مسلسل' });
+            return res.status(400).json({ error: 'يجب أن يكون الفيديو مرتبطًا إما بقسم فرعي أو مسلسل' });
+        }
+
+        if (category) {
+            // 🔹 التحقق مما إذا كان القسم المحدد رئيسي
+            const selectedCategory = await Category.findById(category);
+            if (!selectedCategory) {
+                return res.status(404).json({ error: 'القسم غير موجود' });
+            }
+
+            if (selectedCategory.parent === null) {
+                return res.status(400).json({ error: 'لا يمكن إضافة فيديو إلى قسم رئيسي، فقط إلى الأقسام الفرعية' });
+            }
         }
 
         if (!req.files || !req.files.video) {
@@ -122,22 +133,23 @@ router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }])
         const videoFile = req.files.video[0];
         const thumbnailFile = req.files.thumbnail ? req.files.thumbnail[0] : null;
 
-        // رفع الفيديو إلى Uploadcare
+        // 🔹 رفع الفيديو إلى Uploadcare
         const videoFileUrl = await uploadToUploadcare(videoFile.path);
 
-        // رفع الصورة المصغرة إذا كانت موجودة
+        // 🔹 رفع الصورة المصغرة إذا كانت موجودة
         let thumbnailUrl = null;
         if (thumbnailFile) {
             thumbnailUrl = await uploadToUploadcare(thumbnailFile.path);
         }
 
+        // 🔹 إنشاء الفيديو
         const video = new Video({
             title,
             filename: videoFile.filename,
             category,
             series,
             url: videoFileUrl,
-            thumbnail: thumbnailUrl // 🔹 حفظ الرابط الخاص بالصورة المصغرة
+            thumbnail: thumbnailUrl
         });
 
         await video.save();
@@ -153,19 +165,19 @@ router.post('/categories', upload.single('image'), async (req, res) => {
     try {
         const { name, description } = req.body;
 
+        // 🔹 التحقق من وجود اسم القسم مسبقًا
         const existingCategory = await Category.findOne({ name });
         if (existingCategory) {
             return res.status(400).json({ error: 'اسم القسم موجود بالفعل، لا يمكن تكراره' });
         }
 
-        const imagePath = req.file ? req.file.path : null;
-
-        // رفع الصورة إلى Uploadcare إذا كانت موجودة
         let imageUrl = null;
-        if (imagePath) {
-            imageUrl = await uploadToUploadcare(imagePath);
+        if (req.file) {
+            // 🔹 رفع الصورة إلى Uploadcare
+            imageUrl = await uploadToUploadcare(req.file.path);
         }
 
+        // 🔹 إنشاء القسم الجديد مع الصورة المرفوعة
         const category = new Category({ name, description, image: imageUrl });
         await category.save();
 
@@ -174,6 +186,37 @@ router.post('/categories', upload.single('image'), async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// 🟢 إضافة قسم فرعي لقسم رئيسي
+router.post('/categories/add-subcategory', async (req, res) => {
+    try {
+      const { name, description, image, parentId } = req.body;
+  
+      // ✅ التحقق من وجود القسم الرئيسي
+      const parentCategory = await Category.findById(parentId);
+      if (!parentCategory) {
+        return res.status(404).json({ message: 'القسم الرئيسي غير موجود' });
+      }
+  
+      // ✅ إنشاء القسم الفرعي
+      const subcategory = new Category({
+        name,
+        description,
+        image,
+        parent: parentId, // ربطه بالقسم الرئيسي
+      });
+  
+      await subcategory.save();
+  
+      // ✅ تحديث القسم الرئيسي بإضافة القسم الفرعي إليه
+      parentCategory.subcategories.push(subcategory._id);
+      await parentCategory.save();
+  
+      res.status(201).json({ message: 'تم إضافة القسم الفرعي بنجاح', subcategory });
+    } catch (error) {
+      res.status(500).json({ message: 'حدث خطأ أثناء الإضافة', error: error.message });
+    }
+  });
 
 // 🟢 إضافة مسلسل جديد
 router.post('/series', upload.single('image'), async (req, res) => {
@@ -217,28 +260,27 @@ router.get('/all-data', async (req, res) => {
 // 🟢 عرض آخر 10 فيديوهات من قسم "films" وآخر 10 فيديوهات تم إضافتها للمسلسلات في روت واحد
 router.get('/latest-videos', async (req, res) => {
     try {
-        // جلب القسم الذي اسمه "films"
+        // 🔹 جلب القسم الرئيسي "films"
         const category = await Category.findOne({ name: 'films' });
         if (!category) {
             return res.status(404).json({ error: 'القسم "films" غير موجود' });
         }
 
-        // جلب آخر 10 فيديوهات من قسم "films" مع جميع التفاصيل
-        const filmsVideos = await Video.find({ category: category._id })
+        // 🔹 جلب جميع الأقسام الفرعية التابعة له
+        const subcategories = await Category.find({ parent: category._id }).select('_id');
+
+        if (subcategories.length === 0) {
+            return res.status(404).json({ error: 'لا توجد أقسام فرعية في قسم "films"' });
+        }
+
+        const subcategoryIds = subcategories.map(sub => sub._id);
+
+        // 🔹 جلب آخر 10 فيديوهات من الأقسام الفرعية
+        const videos = await Video.find({ category: { $in: subcategoryIds } })
             .sort({ createdAt: -1 })
             .limit(10);
 
-        // جلب آخر 10 فيديوهات من المسلسلات مع جميع التفاصيل + معلومات المسلسل
-        const seriesVideos = await Video.find({ series: { $ne: null } })
-            .populate('series', 'title imageUrl') // جلب معلومات المسلسل (العنوان والصورة)
-            .sort({ createdAt: -1 })
-            .limit(10);
-
-        // إرسال البيانات
-        res.status(200).json({
-            filmsVideos,
-            seriesVideos
-        });
+        res.status(200).json({ videos });
 
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -283,23 +325,48 @@ router.get('/videos-by-category-or-series', async (req, res) => {
     }
 });
 
-// 🟢 مسار لعرض جميع الأقسام
+// 🟢 مسار لعرض الأقسام الرئيسية فقط
 router.get('/categories', async (req, res) => {
     try {
-        // استرجاع جميع الأقسام من قاعدة البيانات
-        const categories = await Category.find();
+        // 🔹 جلب الأقسام الرئيسية فقط (التي ليس لديها parent)
+        const categories = await Category.find({ parent: null });
 
-        // التحقق مما إذا كانت الأقسام موجودة
+        // 🔹 التحقق مما إذا كانت الأقسام موجودة
         if (!categories || categories.length === 0) {
-            return res.status(404).json({ message: 'لا توجد أقسام' });
+            return res.status(404).json({ message: 'لا توجد أقسام رئيسية' });
         }
 
-        // إرسال الأقسام
+        // 🔹 إرسال الأقسام الرئيسية فقط
         res.status(200).json({ categories });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+// 🟢 مسار لعرض جميع الأقسام الفرعية لقسم معين
+router.get('/categories/:parentId/subcategories', async (req, res) => {
+    try {
+        const { parentId } = req.params;
+
+        // 🔹 التحقق مما إذا كان القسم الرئيسي موجودًا
+        const parentCategory = await Category.findById(parentId);
+        if (!parentCategory) {
+            return res.status(404).json({ message: 'القسم الرئيسي غير موجود' });
+        }
+
+        // 🔹 جلب جميع الأقسام الفرعية التي تنتمي لهذا القسم الرئيسي
+        const subcategories = await Category.find({ parent: parentId });
+
+        if (!subcategories || subcategories.length === 0) {
+            return res.status(404).json({ message: 'لا توجد أقسام فرعية لهذا القسم' });
+        }
+
+        res.status(200).json({ parent: parentCategory.name, subcategories });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 
 
