@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { Category, Video, Series ,Complaint } = require('../Models/Video');
+const authMiddleware = require('../middleware/authMiddleware'); // استيراد الميدلير للتحقق من التوكن
+
 const FormData = require('form-data'); // ✅ تأكد من استيراد FormData بشكل صحيح
 const router = express.Router();
 
@@ -376,34 +378,64 @@ router.get('/categories/:parentId/subcategories', async (req, res) => {
     }
 });
 
-
-router.put('/videos/:id/view', async (req, res) => {
+// روت لزيادة عدد المشاهدات للفيديو مع التحقق من التوكن ومنع إضافة مشهدتين لنفس الفيديو
+router.put('/videos/:id/view', authMiddleware, async (req, res) => {
     try {
-        const video = await Video.findByIdAndUpdate(
-            req.params.id,
-            { $inc: { views: 1 } }, // زيادة المشاهدات بمقدار 1
-            { new: true } // إرجاع العنصر بعد التحديث
-        );
-        if (!video) return res.status(404).json({ message: "Video not found" });
-        res.json(video);
+      // العثور على الفيديو
+      const video = await Video.findById(req.params.id);
+  
+      if (!video) {
+        return res.status(404).json({ message: "الفيديو غير موجود" });
+      }
+  
+      // التحقق إذا كان المستخدم قد شاهد الفيديو مسبقًا
+      // في هذا المثال، سنحفظ في الفيديو نفسه قائمة بالمستخدمين الذين شاهدوا الفيديو
+      if (video.viewedBy && video.viewedBy.includes(req.user.userId)) {
+        return res.status(400).json({ message: "لقد شاهدت هذا الفيديو بالفعل" });
+      }
+  
+      // إضافة الـ userId إلى قائمة المستخدمين الذين شاهدوا الفيديو
+      video.viewedBy = video.viewedBy || [];
+      video.viewedBy.push(req.user.userId);
+  
+      // زيادة عدد المشاهدات
+      video.views += 1;
+  
+      // حفظ الفيديو مع التحديثات
+      await video.save();
+  
+      res.json(video);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ message: "حدث خطأ في الخادم" });
     }
-});
+  });
 
-router.put('/videos/:id/rate', async (req, res) => {
+// روت لإضافة الفيديو إلى المفضلة
+router.post('/add-to-favorites/:videoId', authMiddleware, async (req, res) => {
     try {
-        const video = await Video.findByIdAndUpdate(
-            req.params.id,
-            { rating: 1 }, // تثبيت التقييم عند 1
-            { new: true }
-        );
-        if (!video) return res.status(404).json({ message: "Video not found" });
-        res.json(video);
+      // العثور على الفيديو حسب الـ ID
+      const video = await Video.findById(req.params.videoId);
+      
+      if (!video) {
+        return res.status(404).json({ message: 'الفيديو غير موجود' });
+      }
+  
+      // تحديث حالة المفضلة وزيادة العدد
+      if (!video.favorites) {
+        video.favorites = true; // تعيين المفضلة إلى true
+        video.favoritesCount += 1; // زيادة عدد المفضلات
+        await video.save(); // حفظ التحديثات في قاعدة البيانات
+        return res.status(200).json({ message: 'تم إضافة الفيديو إلى المفضلة', video });
+      } else {
+        return res.status(400).json({ message: 'الفيديو بالفعل في المفضلة' });
+      }
     } catch (error) {
-        res.status(500).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ message: 'حدث خطأ في الخادم' });
     }
-});
+  });
+
 
 router.get('/videos/:id/suggestions', async (req, res) => {
     try {

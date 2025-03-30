@@ -2,14 +2,14 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
-const jwt = require("jsonwebtoken"); // مكتبة JWT
 const User = require("../Models/Users");
 const router = express.Router();
+const tokenService = require("../services/tokenService");
+const authMiddleware = require("../middleware/authMiddleware");
 require("dotenv").config();
 
 const verificationCodes = new Map();
-const activeTokens = new Set(); // تخزين الرموز النشطة (لضمان تسجيل دخول لمرة واحدة)
-
+ 
 // إعداد Nodemailer
 const transporter = nodemailer.createTransport({
   service: "gmail",
@@ -77,7 +77,7 @@ router.post("/verify-email", async (req, res) => {
   }
 });
 
-// 🔐 تسجيل الدخول وإنشاء توكن JWT لمرة واحدة
+// تسجيل الدخول وإنشاء توكن JWT
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -92,34 +92,44 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
-    // إنشاء التوكن JWT لمرة واحدة فقط
-    if (activeTokens.has(email)) {
-      return res.status(403).json({ message: "User already logged in elsewhere" });
-    }
+    const token = tokenService.generateToken(user);
 
-    const token = jwt.sign({ userId: user._id, email: user.email }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+    res.status(200).json({ 
+      message: "Login successful", 
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phoneNumber: user.phoneNumber
+      }
     });
-
-    activeTokens.add(email);
-
-    res.status(200).json({ message: "Login successful", token });
   } catch (error) {
     res.status(500).json({ message: "Server error", error });
   }
 });
 
-// 🔓 تسجيل الخروج وحذف التوكن
-router.post("/logout", (req, res) => {
+// تسجيل الخروج وحذف التوكن
+router.post("/logout", authMiddleware, (req, res) => {
   try {
-    const { email } = req.body;
-
-    if (!activeTokens.has(email)) {
+    const token = req.header("Authorization")?.replace("Bearer ", "");
+    
+    if (!token || !tokenService.isTokenActive(token)) {
       return res.status(400).json({ message: "User not logged in" });
     }
 
-    activeTokens.delete(email);
+    tokenService.revokeToken(token);
     res.status(200).json({ message: "Logout successful" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+});
+
+// مثال على مسار محمي باستخدام التوكن
+router.get("/profile", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select("-password");
+    res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: "Server error", error });
   }

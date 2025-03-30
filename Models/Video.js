@@ -23,6 +23,7 @@ categorySchema.pre('save', async function (next) {
 const Category = mongoose.model('Category', categorySchema);
 
 // 🟢 Video Model (الفيديوهات)
+// 🟢 Video Model (الفيديوهات)
 const videoSchema = new mongoose.Schema({
   title: { type: String, required: true },
   filename: { type: String },
@@ -32,12 +33,13 @@ const videoSchema = new mongoose.Schema({
   thumbnail: { type: String }, // 🔹 صورة الغلاف
   uploadedAt: { type: Date, default: Date.now },
   views: { type: Number, default: 0 },
-  rating: { type: Number, default: 1, min: 1, max: 1 }
+  favorites: { type: Boolean, default: false }, // Added a field to mark as favorite
+  favoritesCount: { type: Number, default: 0 } // Added to store the number of favorites
 });
-
 
 // 🔴 منع تكرار اسم الحلقة داخل نفس المسلسل
 videoSchema.index({ title: 1, series: 1 }, { unique: true });
+
 
 videoSchema.pre('save', function (next) {
   if (!this.category && !this.series) {
