@@ -69,4 +69,15 @@ seriesSchema.index({ 'episodes.title': 1, title: 1 }, { unique: true });
 
 const Series = mongoose.model('Series', seriesSchema);
 
-module.exports = { Category, Video, Series };
+
+const complaintSchema = new mongoose.Schema({
+  title: { type: String, required: true }, // عنوان الشكوى
+  description: { type: String, required: true }, // وصف الشكوى
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // مقدم الشكوى
+  createdAt: { type: Date, default: Date.now } // تاريخ الإنشاء
+});
+
+const Complaint = mongoose.model('Complaint', complaintSchema);
+
+
+module.exports = { Category, Video, Series ,Complaint };

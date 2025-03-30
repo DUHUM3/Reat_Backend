@@ -4,7 +4,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { Category, Video, Series } = require('../Models/Video');
+const { Category, Video, Series ,Complaint } = require('../Models/Video');
 const FormData = require('form-data'); // ✅ تأكد من استيراد FormData بشكل صحيح
 const router = express.Router();
 
@@ -188,35 +188,42 @@ router.post('/categories', upload.single('image'), async (req, res) => {
 });
 
 // 🟢 إضافة قسم فرعي لقسم رئيسي
-router.post('/categories/add-subcategory', async (req, res) => {
+router.post('/categories/add-subcategory', upload.single('image'), async (req, res) => {
     try {
-      const { name, description, image, parentId } = req.body;
-  
-      // ✅ التحقق من وجود القسم الرئيسي
-      const parentCategory = await Category.findById(parentId);
-      if (!parentCategory) {
-        return res.status(404).json({ message: 'القسم الرئيسي غير موجود' });
-      }
-  
-      // ✅ إنشاء القسم الفرعي
-      const subcategory = new Category({
-        name,
-        description,
-        image,
-        parent: parentId, // ربطه بالقسم الرئيسي
-      });
-  
-      await subcategory.save();
-  
-      // ✅ تحديث القسم الرئيسي بإضافة القسم الفرعي إليه
-      parentCategory.subcategories.push(subcategory._id);
-      await parentCategory.save();
-  
-      res.status(201).json({ message: 'تم إضافة القسم الفرعي بنجاح', subcategory });
+        const { name, description, parentId } = req.body;
+
+        // ✅ التحقق من وجود القسم الرئيسي
+        const parentCategory = await Category.findById(parentId);
+        if (!parentCategory) {
+            return res.status(404).json({ message: 'القسم الرئيسي غير موجود' });
+        }
+
+        let imageUrl = null;
+        if (req.file) {
+            // ✅ رفع الصورة إلى Uploadcare
+            imageUrl = await uploadToUploadcare(req.file.path);
+        }
+
+        // ✅ إنشاء القسم الفرعي مع الصورة المرفوعة
+        const subcategory = new Category({
+            name,
+            description,
+            image: imageUrl,
+            parent: parentId, // ربطه بالقسم الرئيسي
+        });
+
+        await subcategory.save();
+
+        // ✅ تحديث القسم الرئيسي بإضافة القسم الفرعي إليه
+        parentCategory.subcategories.push(subcategory._id);
+        await parentCategory.save();
+
+        res.status(201).json({ message: 'تم إضافة القسم الفرعي بنجاح', subcategory });
     } catch (error) {
-      res.status(500).json({ message: 'حدث خطأ أثناء الإضافة', error: error.message });
+        res.status(500).json({ message: 'حدث خطأ أثناء الإضافة', error: error.message });
     }
-  });
+});
+
 
 // 🟢 إضافة مسلسل جديد
 router.post('/series', upload.single('image'), async (req, res) => {
@@ -438,5 +445,56 @@ router.get('/videos/:id/suggestions', async (req, res) => {
 });
 
 
+// 🔎 البحث عن قسم أو فيديو
+router.get('/search', async (req, res) => {
+    try {
+      const { type, query } = req.query; // استخراج نوع البحث والكلمة المفتاحية
+  
+      if (!type || !query) {
+        return res.status(400).json({ message: 'يجب تحديد نوع البحث وإدخال كلمة البحث.' });
+      }
+  
+      let results = [];
+  
+      if (type === 'category') {
+        results = await Category.find({ name: { $regex: query, $options: 'i' } }); // البحث عن الأقسام
+      } else if (type === 'video') {
+        results = await Video.find({ title: { $regex: query, $options: 'i' } }).populate('category series'); // البحث عن الفيديوهات مع جلب بيانات القسم والمسلسل
+      } else {
+        return res.status(400).json({ message: 'نوع البحث غير صالح، استخدم category أو video فقط.' });
+      }
+  
+      res.json(results);
+    } catch (error) {
+      res.status(500).json({ message: 'حدث خطأ أثناء البحث.', error: error.message });
+    }
+  });
+
+
+  // إضافة شكوى جديدة
+router.post('/complaints', async (req, res) => {
+    try {
+        const { title, description, user } = req.body;
+
+        // تحقق من أن جميع الحقول المطلوبة متوفرة
+        if (!title || !description || !user) {
+            return res.status(400).json({ message: 'جميع الحقول مطلوبة' });
+        }
+
+        // إنشاء كائن الشكوى الجديد
+        const newComplaint = new Complaint({
+            title,
+            description,
+            user
+        });
+
+        // حفظ الشكوى في قاعدة البيانات
+        await newComplaint.save();
+
+        res.status(201).json({ message: 'تم إرسال الشكوى بنجاح', complaint: newComplaint });
+    } catch (error) {
+        res.status(500).json({ message: 'حدث خطأ أثناء إرسال الشكوى', error: error.message });
+    }
+});
 
 module.exports = router;

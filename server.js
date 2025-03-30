@@ -27,11 +27,14 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // استيراد المسارات (Routes) إذا كنت تحتاجها
 const videoRoutes = require('./Routes/videoRoutes');
+const authRoutes = require('./Routes/userRoutes');
 
 
 
 
 app.use('/videos', videoRoutes); 
+app.use("/auth", authRoutes);
+
 const PORT = process.env.PORT || 5000;
 
 // الاتصال بقاعدة البيانات
