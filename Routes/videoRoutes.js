@@ -405,34 +405,35 @@ router.get('/categories/:parentId/subcategories', async (req, res) => {
 
 router.put('/videos/:id/view', authMiddleware, async (req, res) => {
     try {
-      // العثور على الفيديو
-      const video = await Video.findById(req.params.id);
-  
-      if (!video) {
-        return res.status(404).json({ message: "الفيديو غير موجود" });
-      }
-  
-      // التحقق إذا كان المستخدم قد شاهد الفيديو مسبقًا باستخدام userId
-      if (video.viewedBy && video.viewedBy.includes(req.user.userId)) {
-        return res.status(400).json({ message: "لقد شاهدت هذا الفيديو بالفعل" });
-      }
-  
-      // إضافة الـ userId إلى قائمة المستخدمين الذين شاهدوا الفيديو
-      video.viewedBy = video.viewedBy || [];
-      video.viewedBy.push(req.user.userId);
-  
-      // زيادة عدد المشاهدات
-      video.views += 1;
-  
-      // حفظ الفيديو مع التحديثات
-      await video.save();
-  
-      res.json({ message: "تم إضافة المشاهدة بنجاح", video });
+        // العثور على الفيديو
+        const video = await Video.findById(req.params.id);
+
+        if (!video) {
+            return res.status(404).json({ message: "الفيديو غير موجود" });
+        }
+
+        // تحقق من التكرار بناءً على نفس التكنمرين
+        if (video.viewedBy && video.viewedBy.includes(req.user.userId)) {
+            return res.status(400).json({ message: "لقد شاهدت هذا الفيديو بالفعل" });
+        }
+
+        // إضافة الـ userId إلى قائمة المستخدمين الذين شاهدوا الفيديو
+        video.viewedBy = video.viewedBy || [];
+        video.viewedBy.push(req.user.userId);
+
+        // زيادة عدد المشاهدات
+        video.views += 1;
+
+        // حفظ الفيديو مع التحديثات
+        await video.save();
+
+        res.json({ message: "تم إضافة المشاهدة بنجاح", video });
     } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: "حدث خطأ في الخادم" });
+        console.error(error);
+        res.status(500).json({ message: "حدث خطأ في الخادم" });
     }
 });
+
 
 // روت لإضافة الفيديو إلى المفضلة
 router.post('/add-to-favorites/:videoId', authMiddleware, async (req, res) => {

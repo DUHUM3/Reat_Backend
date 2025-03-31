@@ -1,29 +1,39 @@
 const jwt = require("jsonwebtoken");
-const activeTokens = new Set();
+const activeTokens = new Map();  // حفظ التوكنات بناءً على الـ userId
 
 module.exports = {
   generateToken: (user) => {
     const token = jwt.sign(
       { userId: user._id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: "24h" }
     );
-    activeTokens.add(token); // تخزين التوكن نفسه بدلاً من البريد الإلكتروني
+
+    if (activeTokens.has(user._id)) {
+      throw new Error("User is already logged in");
+    }
+
+    activeTokens.set(user._id, token);  // حفظ التوكن للمستخدم الحالي
     return token;
   },
 
   verifyToken: (token) => {
-    if (!activeTokens.has(token)) {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (activeTokens.get(decoded.userId) !== token) {
       throw new Error("Token not active");
     }
-    return jwt.verify(token, process.env.JWT_SECRET);
+    return decoded;
   },
 
   revokeToken: (token) => {
-    activeTokens.delete(token);
+    const decoded = jwt.decode(token);
+    if (decoded) {
+      activeTokens.delete(decoded.userId);  // حذف التوكن عند تسجيل الخروج
+    }
   },
 
   isTokenActive: (token) => {
-    return activeTokens.has(token);
+    const decoded = jwt.decode(token);
+    return decoded ? activeTokens.get(decoded.userId) === token : false;
   }
 };

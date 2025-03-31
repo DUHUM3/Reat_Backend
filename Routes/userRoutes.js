@@ -109,7 +109,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// تسجيل الخروج وحذف التوكن
 router.post("/logout", authMiddleware, (req, res) => {
   try {
     const token = req.header("Authorization")?.replace("Bearer ", "");
