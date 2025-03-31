@@ -18,12 +18,15 @@ module.exports = {
   },
 
   verifyToken: (token) => {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (activeTokens.get(decoded.userId) !== token) {
-      throw new Error("Token not active");
+    try {
+      // نقوم فقط بالتحقق من صلاحية التوكن من خلال فك التشفير
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      return decoded;
+    } catch (error) {
+      throw new Error("Token is invalid or expired");
     }
-    return decoded;
   },
+  
 
   revokeToken: (token) => {
     const decoded = jwt.decode(token);
