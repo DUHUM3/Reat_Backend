@@ -23,7 +23,6 @@ categorySchema.pre('save', async function (next) {
 const Category = mongoose.model('Category', categorySchema);
 
 // 🟢 Video Model (الفيديوهات)
-// 🟢 Video Model (الفيديوهات)
 const videoSchema = new mongoose.Schema({
   title: { type: String, required: true },
   filename: { type: String },

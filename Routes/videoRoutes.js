@@ -227,78 +227,77 @@ router.post('/categories/add-subcategory', upload.single('image'), async (req, r
 });
 
 
-// 🟢 إضافة مسلسل جديد
-router.post('/series', upload.single('image'), async (req, res) => {
-    try {
-        const { title, description, category } = req.body;
-
-        const existingSeries = await Series.findOne({ title });
-        if (existingSeries) {
-            return res.status(400).json({ error: 'اسم المسلسل موجود بالفعل، لا يمكن تكراره' });
-        }
-
-        const imageUrl = req.file ? await uploadToUploadcare(req.file.path) : null;
-
-        const series = new Series({ title, description, category, imageUrl });
-        await series.save();
-
-        res.status(201).json({ message: 'تم إنشاء المسلسل بنجاح', series });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-
- 
-
-
-router.get('/all-data', async (req, res) => {
-    try {
-        const categories = await Category.find();
-        const seriesList = await Series.find().populate('category', 'name'); // جلب اسم القسم المرتبط بالمسلسل
-
-        res.status(200).json({
-            categories,
-            series: seriesList
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// 🟢 عرض آخر 10 فيديوهات من قسم "films" وآخر 10 فيديوهات تم إضافتها للمسلسلات في روت واحد
+// روت لعرض أحدث الأفلام والمسلسلات في قوائم منفصلة
 router.get('/latest-videos', async (req, res) => {
     try {
-        // جلب القسم الذي اسمه "films"
-        const category = await Category.findOne({ name: 'films' });
-        if (!category) {
-            return res.status(404).json({ error: 'القسم "films" غير موجود' });
+        // 1. العثور على قسم الأفلام الرئيسي وقسم المسلسلات الرئيسي
+        const moviesCategory = await Category.findOne({ name: 'قسم الافلام', parent: null });
+        const seriesCategory = await Category.findOne({ name: 'قسم المسلسلات', parent: null });
+
+        if (!moviesCategory && !seriesCategory) {
+            return res.status(404).json({ message: 'لم يتم العثور على قسم الأفلام أو المسلسلات' });
         }
 
-        // جلب آخر 10 فيديوهات من قسم "films" مع جميع التفاصيل
-        const filmsVideos = await Video.find({ category: category._id })
-            .sort({ createdAt: -1 })
-            .limit(10);
+        // 2. جلب الأقسام الفرعية لكل قسم رئيسي
+        let movieSubcategoriesIds = [];
+        let seriesSubcategoriesIds = [];
+        
+        if (moviesCategory) {
+            const movieSubcategories = await Category.find({ parent: moviesCategory._id });
+            movieSubcategoriesIds = movieSubcategories.map(sub => sub._id);
+        }
+        
+        if (seriesCategory) {
+            const seriesSubcategories = await Category.find({ parent: seriesCategory._id });
+            seriesSubcategoriesIds = seriesSubcategories.map(sub => sub._id);
+        }
 
-        // جلب آخر 10 فيديوهات من المسلسلات مع جميع التفاصيل + معلومات المسلسل
-        const seriesVideos = await Video.find({ series: { $ne: null } })
-            .populate('series', 'title imageUrl') // جلب معلومات المسلسل (العنوان والصورة)
-            .sort({ createdAt: -1 })
-            .limit(10);
+        // 3. جلب أحدث 10 أفلام من الأقسام الفرعية للأفلام
+        const latestMovies = await Video.find({
+            $or: [
+                { category: { $in: movieSubcategoriesIds } },
+                { series: { $in: movieSubcategoriesIds } }
+            ]
+        })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .populate('category series');
 
-        // إرسال البيانات
+        // 4. جلب أحدث 10 مسلسلات من الأقسام الفرعية للمسلسلات
+        const latestSeries = await Video.find({
+            $or: [
+                { category: { $in: seriesSubcategoriesIds } },
+                { series: { $in: seriesSubcategoriesIds } }
+            ]
+        })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .populate('category series');
+
+        // 5. إرسال النتيجة مع قوائم منفصلة
         res.status(200).json({
-            filmsVideos,
-            seriesVideos
+            message: 'أحدث الأفلام والمسلسلات في قوائم منفصلة',
+            movies: {
+                count: latestMovies.length,
+                videos: latestMovies
+            },
+            series: {
+                count: latestSeries.length,
+                videos: latestSeries
+            }
         });
 
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Error fetching latest movies and series:', error);
+        res.status(500).json({ 
+            message: 'حدث خطأ أثناء جلب أحدث الأفلام والمسلسلات', 
+            error: error.message 
+        });
     }
 });
 
 
-
+  
 // 🟢 عرض كل فيديوهات قسم معين أو مسلسل معين
 router.get('/videos-by-category-or-series', async (req, res) => {
     try {
@@ -334,6 +333,29 @@ router.get('/videos-by-category-or-series', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
+// 🟢 إضافة مسلسل جديد
+router.post('/series', upload.single('image'), async (req, res) => {
+    try {
+        const { title, description, category } = req.body;
+
+        const existingSeries = await Series.findOne({ title });
+        if (existingSeries) {
+            return res.status(400).json({ error: 'اسم المسلسل موجود بالفعل، لا يمكن تكراره' });
+        }
+
+        const imageUrl = req.file ? await uploadToUploadcare(req.file.path) : null;
+
+        const series = new Series({ title, description, category, imageUrl });
+        await series.save();
+
+        res.status(201).json({ message: 'تم إنشاء المسلسل بنجاح', series });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 // 🟢 مسار لعرض الأقسام الرئيسية فقط
 router.get('/categories', async (req, res) => {
@@ -378,7 +400,6 @@ router.get('/categories/:parentId/subcategories', async (req, res) => {
     }
 });
 
-// روت لزيادة عدد المشاهدات للفيديو مع التحقق من التوكن ومنع إضافة مشهدتين لنفس الفيديو
 router.put('/videos/:id/view', authMiddleware, async (req, res) => {
     try {
       // العثور على الفيديو
@@ -388,8 +409,7 @@ router.put('/videos/:id/view', authMiddleware, async (req, res) => {
         return res.status(404).json({ message: "الفيديو غير موجود" });
       }
   
-      // التحقق إذا كان المستخدم قد شاهد الفيديو مسبقًا
-      // في هذا المثال، سنحفظ في الفيديو نفسه قائمة بالمستخدمين الذين شاهدوا الفيديو
+      // التحقق إذا كان المستخدم قد شاهد الفيديو مسبقًا باستخدام userId
       if (video.viewedBy && video.viewedBy.includes(req.user.userId)) {
         return res.status(400).json({ message: "لقد شاهدت هذا الفيديو بالفعل" });
       }
@@ -404,12 +424,12 @@ router.put('/videos/:id/view', authMiddleware, async (req, res) => {
       // حفظ الفيديو مع التحديثات
       await video.save();
   
-      res.json(video);
+      res.json({ message: "تم إضافة المشاهدة بنجاح", video });
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: "حدث خطأ في الخادم" });
     }
-  });
+});
 
 // روت لإضافة الفيديو إلى المفضلة
 router.post('/add-to-favorites/:videoId', authMiddleware, async (req, res) => {
@@ -530,3 +550,18 @@ router.post('/complaints', async (req, res) => {
 });
 
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
