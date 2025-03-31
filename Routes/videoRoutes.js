@@ -460,6 +460,24 @@ router.post('/add-to-favorites/:videoId', authMiddleware, async (req, res) => {
   });
 
 
+  // روت لجلب جميع الفيديوهات في المفضلة
+router.get('/favorites', authMiddleware, async (req, res) => {
+    try {
+        // البحث عن جميع الفيديوهات التي تم وضعها في المفضلة
+        const favoriteVideos = await Video.find({ favorites: true });
+        
+        if (favoriteVideos.length === 0) {
+            return res.status(404).json({ message: 'لا توجد فيديوهات في المفضلة' });
+        }
+
+        res.status(200).json({ videos: favoriteVideos });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'حدث خطأ في الخادم' });
+    }
+});
+
+
 router.get('/videos/:id/suggestions', async (req, res) => {
     try {
         const videoId = req.params.id;
