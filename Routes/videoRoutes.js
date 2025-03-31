@@ -74,7 +74,7 @@ const uploadToUploadcare = async (filePath) => {
     }
 };
 
- // 🟢 مسار جلب تفاصيل الفيديو حسب الـ ID
+// 🟢 مسار جلب تفاصيل الفيديو حسب الـ ID
 router.get('/videos/:id', async (req, res) => {
     try {
         const videoId = req.params.id;
@@ -84,7 +84,7 @@ router.get('/videos/:id', async (req, res) => {
             return res.status(404).json({ message: 'الفيديو غير موجود' });
         }
 
-        // ✅ إرجاع التفاصيل مع روابط الفيديو والصورة
+        // ✅ إرجاع التفاصيل مع روابط الفيديو والصورة والمفضلة
         res.json({
             message: 'تم جلب تفاصيل الفيديو بنجاح',
             video: {
@@ -95,6 +95,8 @@ router.get('/videos/:id', async (req, res) => {
                 views: video.views,
                 rating: video.rating,
                 uploadedAt: video.uploadedAt,
+                favorites: video.favorites, // ✅ حالة المفضلة
+                favoritesCount: video.favoritesCount, // ✅ عدد المرات المضافة للمفضلة
                 url: `${video.url}/`, // 🔹 رابط الفيديو
                 thumbnail: `${video.thumbnail}/` // 🔹 رابط الصورة
             }
@@ -104,6 +106,7 @@ router.get('/videos/:id', async (req, res) => {
         res.status(500).json({ message: 'حدث خطأ أثناء جلب تفاصيل الفيديو' });
     }
 });
+
 
  
 
@@ -524,12 +527,16 @@ router.get('/search', async (req, res) => {
 
 
   // إضافة شكوى جديدة
-router.post('/complaints', async (req, res) => {
+// إضافة شكوى جديدة
+router.post('/complaints', authMiddleware, async (req, res) => {
     try {
-        const { title, description, user } = req.body;
+        const { title, description } = req.body;
+
+        // استخراج معرف المستخدم من التوكن
+        const userId = req.user.userId;
 
         // تحقق من أن جميع الحقول المطلوبة متوفرة
-        if (!title || !description || !user) {
+        if (!title || !description) {
             return res.status(400).json({ message: 'جميع الحقول مطلوبة' });
         }
 
@@ -537,7 +544,7 @@ router.post('/complaints', async (req, res) => {
         const newComplaint = new Complaint({
             title,
             description,
-            user
+            user: userId // استخدام userId المستخرج من التوكن
         });
 
         // حفظ الشكوى في قاعدة البيانات
@@ -548,6 +555,7 @@ router.post('/complaints', async (req, res) => {
         res.status(500).json({ message: 'حدث خطأ أثناء إرسال الشكوى', error: error.message });
     }
 });
+
 
 module.exports = router;
 
