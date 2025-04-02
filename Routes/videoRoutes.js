@@ -639,4 +639,87 @@ router.get('/all-categories-nested', async (req, res) => {
     }
 });
 
+// 🟢 مسار لجلب كل الفيديوهات مع إمكانية التصفية والترتيب والصفحات
+router.get('/all-videos', async (req, res) => {
+    try {
+        // استخراج معاملات البحث والتصفية من query parameters
+        const { 
+            category, 
+            series, 
+            sortBy, 
+            order, 
+            page = 1, 
+            limit = 10,
+            search 
+        } = req.query;
+
+        // بناء كائن الاستعلام
+        const query = {};
+        
+        // إضافة تصفية حسب القسم إذا وجد
+        if (category) {
+            query.category = category;
+        }
+        
+        // إضافة تصفية حسب المسلسل إذا وجد
+        if (series) {
+            query.series = series;
+        }
+        
+        // إضافة بحث بالعنوان إذا وجد
+        if (search) {
+            query.title = { $regex: search, $options: 'i' };
+        }
+
+        // بناء كائن الترتيب
+        const sortOptions = {};
+        
+        // تحديد حقل الترتيب والاتجاه
+        if (sortBy) {
+            const validSortFields = ['title', 'views', 'rating', 'createdAt', 'updatedAt'];
+            if (validSortFields.includes(sortBy)) {
+                sortOptions[sortBy] = order === 'desc' ? -1 : 1;
+            }
+        } else {
+            // الترتيب الافتراضي حسب تاريخ الإضافة (الأحدث أولاً)
+            sortOptions.createdAt = -1;
+        }
+
+        // حساب عدد الفيديوهات الإجمالي
+        const totalVideos = await Video.countDocuments(query);
+
+        // حساب عدد الصفحات الإجمالي
+        const totalPages = Math.ceil(totalVideos / limit);
+
+        // جلب الفيديوهات مع التصفية والترتيب والتقسيم إلى صفحات
+        const videos = await Video.find(query)
+            .sort(sortOptions)
+            .skip((page - 1) * limit)
+            .limit(parseInt(limit))
+            .populate('category series');
+
+        // التحقق من وجود فيديوهات
+        if (videos.length === 0) {
+            return res.status(404).json({ message: 'لا توجد فيديوهات متاحة' });
+        }
+
+        // إرسال النتيجة مع معلومات الصفحات
+        res.status(200).json({
+            message: 'تم جلب الفيديوهات بنجاح',
+            totalVideos,
+            totalPages,
+            currentPage: parseInt(page),
+            videosPerPage: parseInt(limit),
+            videos
+        });
+
+    } catch (error) {
+        console.error('Error fetching all videos:', error);
+        res.status(500).json({ 
+            message: 'حدث خطأ أثناء جلب الفيديوهات', 
+            error: error.message 
+        });
+    }
+});
+
 module.exports = router;
