@@ -28,13 +28,15 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // استيراد المسارات (Routes) إذا كنت تحتاجها
 const videoRoutes = require('./Routes/videoRoutes');
 const authRoutes = require('./Routes/userRoutes');
+const adminRoutes = require("./Routes/adminRoutes");
 
 
 
 
 app.use('/videos', videoRoutes); 
 app.use("/auth", authRoutes);
-
+app.use("/admin", adminRoutes);
+// إعدادات CORS
 const PORT = process.env.PORT || 5000;
 
 // الاتصال بقاعدة البيانات

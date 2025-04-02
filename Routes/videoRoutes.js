@@ -574,21 +574,69 @@ router.post('/complaints', authMiddleware, async (req, res) => {
         res.status(500).json({ message: 'حدث خطأ أثناء إرسال الشكوى', error: error.message });
     }
 });
+// 🟢 مسار لعرض جميع الأقسام مع تفاصيلها متضمنة الأقسام الفرعية المتداخلة
+router.get('/all-categories-nested', async (req, res) => {
+    try {
+        // دالة مساعدة لجلب الأقسام بشكل متداخل
+        const getCategoriesWithSubcategories = async (parentId = null) => {
+            const categories = await Category.find({ parent: parentId });
+            
+            const result = [];
+            
+            for (const category of categories) {
+                // جلب عدد الفيديوهات في هذا القسم مباشرة
+                const videosCount = await Video.countDocuments({ category: category._id });
+                
+                // جلب الأقسام الفرعية بشكل متكرر
+                const subcategories = await getCategoriesWithSubcategories(category._id);
+                
+                // حساب عدد الفيديوهات في الأقسام الفرعية
+                let subcategoriesVideosCount = 0;
+                if (subcategories.length > 0) {
+                    const subcategoryIds = subcategories.map(sub => sub._id);
+                    subcategoriesVideosCount = await Video.countDocuments({ 
+                        category: { $in: subcategoryIds } 
+                    });
+                }
+                
+                // بناء كائن القسم مع تفاصيله
+                const categoryWithDetails = {
+                    _id: category._id,
+                    name: category.name,
+                    description: category.description,
+                    image: category.image,
+                    createdAt: category.createdAt,
+                    updatedAt: category.updatedAt,
+                    totalVideos: videosCount + subcategoriesVideosCount,
+                    subcategories: subcategories
+                };
+                
+                result.push(categoryWithDetails);
+            }
+            
+            return result;
+        };
 
+        // جلب جميع الأقسام بشكل متداخل
+        const allCategories = await getCategoriesWithSubcategories();
+
+        if (allCategories.length === 0) {
+            return res.status(404).json({ message: 'لا توجد أقسام متاحة' });
+        }
+
+        res.status(200).json({
+            message: 'تم جلب جميع الأقسام مع تفاصيلها المتداخلة بنجاح',
+            totalCategories: allCategories.length,
+            categories: allCategories
+        });
+
+    } catch (error) {
+        console.error('Error fetching nested categories:', error);
+        res.status(500).json({ 
+            message: 'حدث خطأ أثناء جلب الأقسام المتداخلة', 
+            error: error.message 
+        });
+    }
+});
 
 module.exports = router;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
