@@ -722,4 +722,168 @@ router.get('/all-videos', async (req, res) => {
     }
 });
 
+// Route to delete a category
+router.delete('/category/:categoryId', async (req, res) => {
+    try {
+      const categoryId = req.params.categoryId;
+  
+      // Find the category
+      const category = await Category.findById(categoryId);
+      if (!category) {
+        return res.status(404).json({ message: 'القسم غير موجود' });
+      }
+  
+      // If category has a parent, remove this category from the parent's subcategories
+      if (category.parent) {
+        await Category.updateOne(
+          { _id: category.parent },
+          { $pull: { subcategories: categoryId } }
+        );
+      }
+  
+      // Use deleteOne instead of remove
+      await Category.deleteOne({ _id: categoryId });
+  
+      return res.status(200).json({ message: 'تم حذف القسم وكل المحتوى المرتبط به بنجاح' });
+    } catch (err) {
+      return res.status(500).json({ message: 'حدث خطأ أثناء الحذف', error: err.message });
+    }
+  });
+  
+// Route to delete a video
+router.delete('/video/:videoId', async (req, res) => {
+    try {
+      const videoId = req.params.videoId;
+  
+      // Find the video
+      const video = await Video.findById(videoId);
+      if (!video) {
+        return res.status(404).json({ message: 'الفيديو غير موجود' });
+      }
+  
+      // Use deleteOne instead of remove
+      await Video.deleteOne({ _id: videoId });
+  
+      return res.status(200).json({ message: 'تم حذف الفيديو بنجاح' });
+    } catch (err) {
+      return res.status(500).json({ message: 'حدث خطأ أثناء الحذف', error: err.message });
+    }
+  });
+
+  /**
+ * @route PUT /videos/:id
+ * @description روت موحد لتعديل الفيديو (العنوان، الوصف، الصورة المصغرة)
+ * @access محمي (يتطلب توكن)
+ * @param {string} id - معرّف الفيديو
+ * @param {string} [title] - العنوان الجديد (اختياري)
+ * @param {string} [description] - الوصف الجديد (اختياري)
+ * @param {file} [thumbnail] - الصورة المصغرة الجديدة (اختياري)
+ */
+router.put('/videos/:id', upload.single('thumbnail'), async (req, res) => {
+    try {
+        const { title, description } = req.body;
+        const videoId = req.params.id;
+
+        // التحقق من وجود الفيديو
+        const video = await Video.findById(videoId);
+        if (!video) {
+            return res.status(404).json({ message: 'الفيديو غير موجود' });
+        }
+
+        // تحديث البيانات النصية إذا وجدت
+        if (title) video.title = title;
+        if (description) video.description = description;
+
+        // تحديث الصورة المصغرة إذا تم رفع ملف جديد
+        if (req.file) {
+            const newThumbnailUrl = await uploadToUploadcare(req.file.path);
+            video.thumbnail = newThumbnailUrl;
+        }
+
+        await video.save();
+
+        res.status(200).json({ 
+            message: 'تم تحديث الفيديو بنجاح', 
+            video: {
+                _id: video._id,
+                title: video.title,
+                description: video.description,
+                thumbnail: video.thumbnail,
+                url: video.url,
+                category: video.category,
+                series: video.series,
+                views: video.views,
+                rating: video.rating
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            message: 'حدث خطأ أثناء تحديث الفيديو', 
+            error: error.message 
+        });
+    }
+});
+
+
+/**
+ * @route PUT /categories/:id
+ * @description روت موحد لتعديل القسم (الاسم، الوصف، الصورة)
+ * @access محمي (يتطلب توكن)
+ * @param {string} id - معرّف القسم
+ * @param {string} [name] - الاسم الجديد (اختياري)
+ * @param {string} [description] - الوصف الجديد (اختياري)
+ * @param {file} [image] - الصورة الجديدة (اختياري)
+ */
+router.put('/categories/:id', upload.single('image'), async (req, res) => {
+    try {
+        const { name, description } = req.body;
+        const categoryId = req.params.id;
+
+        // التحقق من وجود القسم
+        const category = await Category.findById(categoryId);
+        if (!category) {
+            return res.status(404).json({ message: 'القسم غير موجود' });
+        }
+
+        // التحقق من عدم تكرار الاسم إذا تم تغييره
+        if (name && name !== category.name) {
+            const existingCategory = await Category.findOne({ name });
+            if (existingCategory) {
+                return res.status(400).json({ message: 'اسم القسم موجود بالفعل' });
+            }
+            category.name = name;
+        }
+
+        // تحديث الوصف إذا وجد
+        if (description) category.description = description;
+
+        // تحديث الصورة إذا تم رفع ملف جديد
+        if (req.file) {
+            const newImageUrl = await uploadToUploadcare(req.file.path);
+            category.image = newImageUrl;
+        }
+
+        await category.save();
+
+        res.status(200).json({ 
+            message: 'تم تحديث القسم بنجاح', 
+            category: {
+                _id: category._id,
+                name: category.name,
+                description: category.description,
+                image: category.image,
+                parent: category.parent,
+                subcategories: category.subcategories,
+                createdAt: category.createdAt,
+                updatedAt: category.updatedAt
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            message: 'حدث خطأ أثناء تحديث القسم', 
+            error: error.message 
+        });
+    }
+});
+
 module.exports = router;

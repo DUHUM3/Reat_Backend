@@ -20,6 +20,20 @@ categorySchema.pre('save', async function (next) {
   next();
 });
 
+const deleteCategory = async (categoryId) => {
+  try {
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      throw new Error('القسم غير موجود');
+    }
+    await category.remove();
+    console.log('تم حذف القسم وكل المحتوى المرتبط به بنجاح');
+  } catch (err) {
+    console.error('حدث خطأ أثناء الحذف:', err.message);
+  }
+};
+
+
 const Category = mongoose.model('Category', categorySchema);
 
 // 🟢 Video Model (الفيديوهات)
