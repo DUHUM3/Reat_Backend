@@ -770,15 +770,8 @@ router.delete('/video/:videoId', async (req, res) => {
     }
   });
 
-  /**
- * @route PUT /videos/:id
- * @description روت موحد لتعديل الفيديو (العنوان، الوصف، الصورة المصغرة)
- * @access محمي (يتطلب توكن)
- * @param {string} id - معرّف الفيديو
- * @param {string} [title] - العنوان الجديد (اختياري)
- * @param {string} [description] - الوصف الجديد (اختياري)
- * @param {file} [thumbnail] - الصورة المصغرة الجديدة (اختياري)
- */
+ 
+
 router.put('/videos/:id', upload.single('thumbnail'), async (req, res) => {
     try {
         const { title, description } = req.body;
@@ -825,15 +818,7 @@ router.put('/videos/:id', upload.single('thumbnail'), async (req, res) => {
 });
 
 
-/**
- * @route PUT /categories/:id
- * @description روت موحد لتعديل القسم (الاسم، الوصف، الصورة)
- * @access محمي (يتطلب توكن)
- * @param {string} id - معرّف القسم
- * @param {string} [name] - الاسم الجديد (اختياري)
- * @param {string} [description] - الوصف الجديد (اختياري)
- * @param {file} [image] - الصورة الجديدة (اختياري)
- */
+
 router.put('/categories/:id', upload.single('image'), async (req, res) => {
     try {
         const { name, description } = req.body;
@@ -882,6 +867,128 @@ router.put('/categories/:id', upload.single('image'), async (req, res) => {
         res.status(500).json({ 
             message: 'حدث خطأ أثناء تحديث القسم', 
             error: error.message 
+        });
+    }
+});
+
+
+
+// 🟢 روت للإحصائيات التفصيلية
+router.get('/stats', async (req, res) => {
+    try {
+        // 1. إحصائيات الفيديوهات
+        const totalVideos = await Video.countDocuments();
+        const videosByCategory = await Video.aggregate([
+            { $group: { _id: "$category", count: { $sum: 1 } } },
+            { $lookup: { from: "categories", localField: "_id", foreignField: "_id", as: "category" } },
+            { $unwind: "$category" },
+            { $project: { "category.name": 1, count: 1 } }
+        ]);
+        
+        const videosBySeries = await Video.aggregate([
+            { $group: { _id: "$series", count: { $sum: 1 } } },
+            { $lookup: { from: "series", localField: "_id", foreignField: "_id", as: "series" } },
+            { $unwind: "$series" },
+            { $project: { "series.title": 1, count: 1 } }
+        ]);
+
+        // 2. إحصائيات المشاهدات
+        const totalViews = await Video.aggregate([
+            { $group: { _id: null, totalViews: { $sum: "$views" } } }
+        ]);
+        
+        const mostViewedVideos = await Video.find()
+            .sort({ views: -1 })
+            .limit(5)
+            .select('title views thumbnail');
+
+        // 3. إحصائيات الأقسام
+        const totalCategories = await Category.countDocuments();
+        const categoriesWithMostVideos = await Video.aggregate([
+            { $group: { _id: "$category", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 5 },
+            { $lookup: { from: "categories", localField: "_id", foreignField: "_id", as: "category" } },
+            { $unwind: "$category" },
+            { $project: { "category.name": 1, count: 1 } }
+        ]);
+
+        // 4. إحصائيات المسلسلات
+        const totalSeries = await Series.countDocuments();
+        const seriesWithMostEpisodes = await Video.aggregate([
+            { $group: { _id: "$series", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 5 },
+            { $lookup: { from: "series", localField: "_id", foreignField: "_id", as: "series" } },
+            { $unwind: "$series" },
+            { $project: { "series.title": 1, count: 1 } }
+        ]);
+
+        // 5. إحصائيات المفضلة
+        const totalFavorites = await Video.countDocuments({ favorites: true });
+        const mostFavoritedVideos = await Video.find({ favorites: true })
+            .sort({ favoritesCount: -1 })
+            .limit(5)
+            .select('title favoritesCount thumbnail');
+
+        // 6. إحصائيات الشكاوى
+        const totalComplaints = await Complaint.countDocuments();
+        const recentComplaints = await Complaint.find()
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .select('title status createdAt');
+
+        // 7. إحصائيات النشاط الأخير
+        const recentlyAddedVideos = await Video.find()
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .select('title createdAt thumbnail');
+            
+        const recentlyUpdatedCategories = await Category.find()
+            .sort({ updatedAt: -1 })
+            .limit(5)
+            .select('name updatedAt');
+
+        // تجميع كل الإحصائيات في كائن واحد
+        const stats = {
+            videos: {
+                total: totalVideos,
+                byCategory: videosByCategory,
+                bySeries: videosBySeries,
+                mostViewed: mostViewedVideos,
+                recentlyAdded: recentlyAddedVideos
+            },
+            views: {
+                total: totalViews[0]?.totalViews || 0
+            },
+            categories: {
+                total: totalCategories,
+                mostPopular: categoriesWithMostVideos,
+                recentlyUpdated: recentlyUpdatedCategories
+            },
+            series: {
+                total: totalSeries,
+                mostEpisodes: seriesWithMostEpisodes
+            },
+            favorites: {
+                total: totalFavorites,
+                mostFavorited: mostFavoritedVideos
+            },
+            complaints: {
+                total: totalComplaints,
+                recent: recentComplaints
+            }
+        };
+
+        res.status(200).json({
+            message: 'تم جلب الإحصائيات بنجاح',
+            stats
+        });
+    } catch (error) {
+        console.error('Error fetching statistics:', error);
+        res.status(500).json({
+            message: 'حدث خطأ أثناء جلب الإحصائيات',
+            error: error.message
         });
     }
 });
