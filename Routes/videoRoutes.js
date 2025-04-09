@@ -639,6 +639,47 @@ router.get('/all-categories-nested', async (req, res) => {
     }
 });
 
+
+// 🟡 مسار لعرض كل الأقسام الفرعية النهائية (التي لا تحتوي على أقسام فرعية أخرى)
+router.get('/leaf-categories', async (req, res) => {
+    try {
+        // جلب جميع الأقسام
+        const allCategories = await Category.find();
+
+        // استخراج الـ _id لكل قسم
+        const allCategoryIds = allCategories.map(cat => cat._id.toString());
+
+        // استخراج الـ parent لكل قسم، أي الأقسام التي هي آباء لأقسام أخرى
+        const parentIds = allCategories
+            .filter(cat => cat.parent)
+            .map(cat => cat.parent.toString());
+
+        // الأقسام النهائية هي التي لا تظهر كـ parent
+        const leafCategoryIds = allCategoryIds.filter(id => !parentIds.includes(id));
+
+        // جلب تفاصيل هذه الأقسام النهائية
+        const leafCategories = await Category.find({ _id: { $in: leafCategoryIds } });
+
+        if (leafCategories.length === 0) {
+            return res.status(404).json({ message: 'لا توجد أقسام فرعية نهائية' });
+        }
+
+        res.status(200).json({
+            message: 'تم جلب الأقسام الفرعية النهائية بنجاح',
+            totalLeafCategories: leafCategories.length,
+            leafCategories: leafCategories
+        });
+
+    } catch (error) {
+        console.error('Error fetching leaf categories:', error);
+        res.status(500).json({ 
+            message: 'حدث خطأ أثناء جلب الأقسام النهائية', 
+            error: error.message 
+        });
+    }
+});
+
+
 // 🟢 مسار لجلب كل الفيديوهات مع إمكانية التصفية والترتيب والصفحات
 router.get('/all-videos', async (req, res) => {
     try {
