@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const User = require("../Models/Users");
+
 const router = express.Router();
 const tokenService = require("../services/tokenService");
 const authMiddleware = require("../middleware/authMiddleware");

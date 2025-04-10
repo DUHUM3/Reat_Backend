@@ -5,7 +5,15 @@ const cors = require('cors');
 require('dotenv').config();
 const connectDB = require('./config/db'); // استدعاء ملف الاتصال بقاعدة البيانات
 const multer = require('multer');
+const admin = require('firebase-admin');
 
+// تحميل ملف خدمة Firebase JSON
+const serviceAccount = require('./services/rest-d6cae-firebase-adminsdk-fbsvc-933dad5778.json');
+
+// تهيئة Firebase Admin
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
 // Middleware لتحليل بيانات JSON
 app.use(express.json());
 

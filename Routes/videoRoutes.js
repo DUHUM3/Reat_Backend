@@ -6,6 +6,8 @@ const path = require('path');
 const axios = require('axios');
 const { Category, Video, Series ,Complaint } = require('../Models/Video');
 const authMiddleware = require('../middleware/authMiddleware'); // استيراد الميدلير للتحقق من التوكن
+const User = require("../Models/Users");
+const admin = require('firebase-admin');
 
 const FormData = require('form-data'); // ✅ تأكد من استيراد FormData بشكل صحيح
 const router = express.Router();
@@ -113,73 +115,79 @@ router.get('/videos/:id', async (req, res) => {
 
 router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }]), async (req, res) => {
     try {
-        const { title, category, series } = req.body;
-
-        if (!category && !series) {
-            return res.status(400).json({ error: 'يجب أن يكون الفيديو مرتبطًا إما بقسم فرعي أو مسلسل' });
+      const { title, category, series } = req.body;
+  
+      // تحقق من أن الفيديو مرتبط إما بقسم فرعي أو مسلسل
+      if (!category && !series) {
+        return res.status(400).json({ error: 'يجب أن يكون الفيديو مرتبطًا إما بقسم فرعي أو مسلسل' });
+      }
+  
+      // تحقق من القسم إذا تم إدخاله
+      if (category) {
+        const selectedCategory = await Category.findById(category);
+        if (!selectedCategory) {
+          return res.status(404).json({ error: 'القسم غير موجود' });
         }
-
-        if (category) {
-            // التحقق مما إذا كان القسم المحدد رئيسي
-            const selectedCategory = await Category.findById(category);
-            if (!selectedCategory) {
-                return res.status(404).json({ error: 'القسم غير موجود' });
-            }
-
-            if (selectedCategory.parent === null) {
-                return res.status(400).json({ error: 'لا يمكن إضافة فيديو إلى قسم رئيسي، فقط إلى الأقسام الفرعية' });
-            }
+  
+        if (selectedCategory.parent === null) {
+          return res.status(400).json({ error: 'لا يمكن إضافة فيديو إلى قسم رئيسي، فقط إلى الأقسام الفرعية' });
         }
-
-        if (!req.files || !req.files.video) {
-            return res.status(400).json({ error: 'يجب رفع ملف فيديو' });
-        }
-
-        const videoFile = req.files.video[0];
-        const thumbnailFile = req.files.thumbnail ? req.files.thumbnail[0] : null;
-
-        // رفع الفيديو إلى Uploadcare
-        const videoFileUrl = await uploadToUploadcare(videoFile.path);
-
-        // رفع الصورة المصغرة إذا كانت موجودة
-        let thumbnailUrl = null;
-        if (thumbnailFile) {
-            thumbnailUrl = await uploadToUploadcare(thumbnailFile.path);
-        }
-
-        // إنشاء الفيديو
-        const video = new Video({
-            title,
-            filename: videoFile.filename,
-            category,
-            series,
-            url: videoFileUrl,
-            thumbnail: thumbnailUrl
-        });
-
-        await video.save();
-
-        // إرسال إشعار لجميع المستخدمين اللي عندهم fcmToken
-        const usersWithToken = await User.find({ fcmToken: { $ne: null } });
-        const tokens = usersWithToken.map(user => user.fcmToken);
-
-        if (tokens.length > 0) {
-            const message = {
-                notification: {
-                    title: 'تم إضافة فيديو جديد!',
-                    body: `تم إضافة فيديو بعنوان: ${title}`,
-                },
-                tokens,
-            };
-
-            await admin.messaging().sendEachForMulticast(message);
-        }
-
-        res.status(201).json({ message: 'تم إنشاء الفيديو ورفع الغلاف بنجاح', video });
+      }
+  
+      // تحقق من وجود ملف الفيديو
+      if (!req.files || !req.files.video) {
+        return res.status(400).json({ error: 'يجب رفع ملف فيديو' });
+      }
+  
+      const videoFile = req.files.video[0];
+      const thumbnailFile = req.files.thumbnail ? req.files.thumbnail[0] : null;
+  
+      // رفع الفيديو إلى Uploadcare
+      const videoFileUrl = await uploadToUploadcare(videoFile.path);
+  
+      // رفع الصورة المصغرة إن وجدت
+      let thumbnailUrl = null;
+      if (thumbnailFile) {
+        thumbnailUrl = await uploadToUploadcare(thumbnailFile.path);
+      }
+  
+      // إنشاء كائن الفيديو
+      const video = new Video({
+        title,
+        filename: videoFile.filename,
+        category,
+        series,
+        url: videoFileUrl,
+        thumbnail: thumbnailUrl
+      });
+  
+      await video.save();
+  
+      // إرسال إشعار للمستخدمين الذين لديهم fcmToken صالح
+      const usersWithToken = await User.find({
+        fcmToken: { $exists: true, $ne: null, $ne: '' }
+      });
+  
+      const tokens = usersWithToken.map(user => user.fcmToken);
+  
+      if (tokens.length > 0) {
+        const message = {
+          notification: {
+            title: 'تم إضافة فيديو جديد!',
+            body: `تم إضافة فيديو بعنوان: ${title}`,
+          },
+          tokens,
+        };
+  
+        await admin.messaging().sendEachForMulticast(message);
+      }
+  
+      res.status(201).json({ message: 'تم إنشاء الفيديو ورفع الغلاف بنجاح', video });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message });
     }
-});
+  });
+  
 
 
 
