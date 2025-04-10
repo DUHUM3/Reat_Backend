@@ -19,10 +19,9 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// إرسال كود التحقق عند طلب التسجيل
 router.post("/send-verification-code", async (req, res) => {
   try {
-    const { name, email, password, phoneNumber } = req.body;
+    const { name, email, password, phoneNumber, fcmToken } = req.body; // إضافة fcmToken
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -30,7 +29,14 @@ router.post("/send-verification-code", async (req, res) => {
     }
 
     const verificationCode = crypto.randomInt(100000, 999999).toString();
-    verificationCodes.set(email, { name, email, password, phoneNumber, verificationCode });
+    verificationCodes.set(email, { 
+      name, 
+      email, 
+      password, 
+      phoneNumber, 
+      fcmToken, // تخزين fcmToken مؤقتاً للتحقق
+      verificationCode 
+    });
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
@@ -66,6 +72,7 @@ router.post("/verify-email", async (req, res) => {
       email: userData.email,
       password: hashedPassword,
       phoneNumber: userData.phoneNumber,
+      fcmToken: userData.fcmToken // حفظ fcmToken في قاعدة البيانات
     });
 
     await newUser.save();

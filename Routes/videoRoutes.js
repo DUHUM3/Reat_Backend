@@ -120,7 +120,7 @@ router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }])
         }
 
         if (category) {
-            // 🔹 التحقق مما إذا كان القسم المحدد رئيسي
+            // التحقق مما إذا كان القسم المحدد رئيسي
             const selectedCategory = await Category.findById(category);
             if (!selectedCategory) {
                 return res.status(404).json({ error: 'القسم غير موجود' });
@@ -138,16 +138,16 @@ router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }])
         const videoFile = req.files.video[0];
         const thumbnailFile = req.files.thumbnail ? req.files.thumbnail[0] : null;
 
-        // 🔹 رفع الفيديو إلى Uploadcare
+        // رفع الفيديو إلى Uploadcare
         const videoFileUrl = await uploadToUploadcare(videoFile.path);
 
-        // 🔹 رفع الصورة المصغرة إذا كانت موجودة
+        // رفع الصورة المصغرة إذا كانت موجودة
         let thumbnailUrl = null;
         if (thumbnailFile) {
             thumbnailUrl = await uploadToUploadcare(thumbnailFile.path);
         }
 
-        // 🔹 إنشاء الفيديو
+        // إنشاء الفيديو
         const video = new Video({
             title,
             filename: videoFile.filename,
@@ -159,11 +159,29 @@ router.post('/videos', upload.fields([{ name: 'video' }, { name: 'thumbnail' }])
 
         await video.save();
 
+        // إرسال إشعار لجميع المستخدمين اللي عندهم fcmToken
+        const usersWithToken = await User.find({ fcmToken: { $ne: null } });
+        const tokens = usersWithToken.map(user => user.fcmToken);
+
+        if (tokens.length > 0) {
+            const message = {
+                notification: {
+                    title: 'تم إضافة فيديو جديد!',
+                    body: `تم إضافة فيديو بعنوان: ${title}`,
+                },
+                tokens,
+            };
+
+            await admin.messaging().sendEachForMulticast(message);
+        }
+
         res.status(201).json({ message: 'تم إنشاء الفيديو ورفع الغلاف بنجاح', video });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+
 
 // 🟢 إضافة قسم جديد
 router.post('/categories', upload.single('image'), async (req, res) => {
