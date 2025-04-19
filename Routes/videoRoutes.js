@@ -4,7 +4,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { Category, Video, Series ,Complaint } = require('../Models/Video');
+const { Category, Video, Series ,Complaint ,Favorite } = require('../Models/Video');
 const authMiddleware = require('../middleware/authMiddleware'); // استيراد الميدلير للتحقق من التوكن
 const User = require("../Models/Users");
 const admin = require('firebase-admin');
@@ -431,29 +431,23 @@ router.get('/categories/:parentId/subcategories', async (req, res) => {
 
 router.put('/videos/:id/view', authMiddleware, async (req, res) => {
     try {
-        // العثور على الفيديو
         const video = await Video.findById(req.params.id);
 
         if (!video) {
             return res.status(404).json({ message: "الفيديو غير موجود" });
         }
 
-        // تحقق من التكرار بناءً على نفس التكنمرين
-        if (video.viewedBy && video.viewedBy.includes(req.user.userId)) {
+        // استخدام الدالة الجديدة addView
+        const viewed = await video.addView(req.user.userId);
+
+        if (!viewed) {
             return res.status(400).json({ message: "لقد شاهدت هذا الفيديو بالفعل" });
         }
 
-        // إضافة الـ userId إلى قائمة المستخدمين الذين شاهدوا الفيديو
-        video.viewedBy = video.viewedBy || [];
-        video.viewedBy.push(req.user.userId);
-
-        // زيادة عدد المشاهدات
-        video.views += 1;
-
-        // حفظ الفيديو مع التحديثات
-        await video.save();
-
-        res.json({ message: "تم إضافة المشاهدة بنجاح", video });
+        res.json({ 
+            message: "تم إضافة المشاهدة بنجاح", 
+            views: video.views 
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "حدث خطأ في الخادم" });
@@ -464,43 +458,85 @@ router.put('/videos/:id/view', authMiddleware, async (req, res) => {
 // روت لإضافة الفيديو إلى المفضلة
 router.post('/add-to-favorites/:videoId', authMiddleware, async (req, res) => {
     try {
-      // العثور على الفيديو حسب الـ ID
-      const video = await Video.findById(req.params.videoId);
-      
-      if (!video) {
-        return res.status(404).json({ message: 'الفيديو غير موجود' });
-      }
-  
-      // تحديث حالة المفضلة وزيادة العدد
-      if (!video.favorites) {
-        video.favorites = true; // تعيين المفضلة إلى true
-        video.favoritesCount += 1; // زيادة عدد المفضلات
-        await video.save(); // حفظ التحديثات في قاعدة البيانات
-        return res.status(200).json({ message: 'تم إضافة الفيديو إلى المفضلة', video });
-      } else {
-        return res.status(400).json({ message: 'الفيديو بالفعل في المفضلة' });
-      }
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: 'حدث خطأ في الخادم' });
-    }
-  });
+        // التحقق من وجود الفيديو أولاً
+        const video = await Video.findById(req.params.videoId);
+        if (!video) {
+            return res.status(404).json({ message: "الفيديو غير موجود" });
+        }
 
+        await Favorite.create({ 
+            user: req.user.userId, 
+            video: req.params.videoId 
+        });
+        
+        res.json({ 
+            message: "تمت إضافة الفيديو إلى المفضلة",
+            favoritesCount: video.favoritesCount + 1
+        });
+    } catch (err) {
+        if (err.code === 11000) {
+            res.status(400).json({ message: "الفيديو موجود بالفعل في المفضلة" });
+        } else {
+            console.error(err);
+            res.status(500).json({ message: "حدث خطأ أثناء الإضافة للمفضلة" });
+        }
+    }
+});
+
+
+/**
+ * @route DELETE /favorites/:videoId
+ * @description إزالة فيديو من المفضلة
+ * @access خاص بالمستخدمين المسجلين
+ */
+router.delete('/favorites/:videoId', authMiddleware, async (req, res) => {
+    try {
+        // 1. التحقق من وجود الفيديو في المفضلة
+        const favorite = await Favorite.findOneAndDelete({
+            user: req.user.userId,
+            video: req.params.videoId
+        });
+
+        // 2. إذا لم يكن الفيديو في المفضلة
+        if (!favorite) {
+            return res.status(404).json({
+                success: false,
+                message: "الفيديو غير موجود في المفضلة أو تمت إزالته مسبقاً"
+            });
+        }
+
+        // 3. إرجاع الاستجابة الناجحة
+        res.json({
+            success: true,
+            message: "تم إزالة الفيديو من المفضلة بنجاح",
+            data: {
+                removedFavorite: favorite
+            }
+        });
+
+    } catch (error) {
+        console.error('خطأ في إزالة الفيديو من المفضلة:', error);
+        
+        // 4. معالجة الأخطاء
+        res.status(500).json({
+            success: false,
+            message: "حدث خطأ أثناء محاولة إزالة الفيديو من المفضلة",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
 
   // روت لجلب جميع الفيديوهات في المفضلة
 router.get('/favorites', authMiddleware, async (req, res) => {
     try {
-        // البحث عن جميع الفيديوهات التي تم وضعها في المفضلة
-        const favoriteVideos = await Video.find({ favorites: true });
-        
-        if (favoriteVideos.length === 0) {
-            return res.status(404).json({ message: 'لا توجد فيديوهات في المفضلة' });
-        }
+        const favorites = await Favorite.find({ user: req.user.userId })
+            .populate('video', 'title url thumbnail views')
+            .sort({ createdAt: -1 });
 
-        res.status(200).json({ videos: favoriteVideos });
+        res.json(favorites);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'حدث خطأ في الخادم' });
+        res.status(500).json({ message: "حدث خطأ في جلب قائمة المفضلة" });
     }
 });
 

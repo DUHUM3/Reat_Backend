@@ -4,12 +4,11 @@ const mongoose = require('mongoose');
 const categorySchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true }, 
   description: { type: String },
-  image: { type: String }, // 🔹 صورة القسم
-  parent: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null }, // 🔹 القسم الرئيسي
-  subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }] // 🔹 الأقسام الفرعية
+  image: { type: String },
+  parent: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null },
+  subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }]
 });
 
-// تحديث القسم الرئيسي لإضافة القسم الفرعي تلقائيًا
 categorySchema.pre('save', async function (next) {
   if (this.parent) {
     await mongoose.model('Category').updateOne(
@@ -20,20 +19,6 @@ categorySchema.pre('save', async function (next) {
   next();
 });
 
-const deleteCategory = async (categoryId) => {
-  try {
-    const category = await Category.findById(categoryId);
-    if (!category) {
-      throw new Error('القسم غير موجود');
-    }
-    await category.remove();
-    console.log('تم حذف القسم وكل المحتوى المرتبط به بنجاح');
-  } catch (err) {
-    console.error('حدث خطأ أثناء الحذف:', err.message);
-  }
-};
-
-
 const Category = mongoose.model('Category', categorySchema);
 
 // 🟢 Video Model (الفيديوهات)
@@ -43,16 +28,17 @@ const videoSchema = new mongoose.Schema({
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
   series: { type: mongoose.Schema.Types.ObjectId, ref: 'Series' },
   url: { type: String, required: true },
-  thumbnail: { type: String }, // 🔹 صورة الغلاف
+  thumbnail: { type: String },
   uploadedAt: { type: Date, default: Date.now },
   views: { type: Number, default: 0 },
-  favorites: { type: Boolean, default: false }, // Added a field to mark as favorite
-  favoritesCount: { type: Number, default: 0 } // Added to store the number of favorites
+  viewedBy: [{ 
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    viewedAt: { type: Date, default: Date.now }
+  }],
+  favoritesCount: { type: Number, default: 0 }
 });
 
-// 🔴 منع تكرار اسم الحلقة داخل نفس المسلسل
 videoSchema.index({ title: 1, series: 1 }, { unique: true });
-
 
 videoSchema.pre('save', function (next) {
   if (!this.category && !this.series) {
@@ -61,13 +47,48 @@ videoSchema.pre('save', function (next) {
   next();
 });
 
+// Method لتسجيل مشاهدة الفيديو (مرة واحدة لكل مستخدم)
+videoSchema.methods.addView = async function(userId) {
+  // التحقق إذا كان المستخدم قد شاهد الفيديو من قبل
+  const alreadyViewed = this.viewedBy.some(view => view.user.equals(userId));
+  
+  if (!alreadyViewed) {
+    this.views += 1;
+    this.viewedBy.push({ user: userId });
+    await this.save();
+    return true; // تم تسجيل المشاهدة
+  }
+  return false; // المشاهدة مسجلة مسبقاً
+};
+
 const Video = mongoose.model('Video', videoSchema);
+
+// نموذج المفضلة
+const favoriteSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  video: { type: mongoose.Schema.Types.ObjectId, ref: 'Video', required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+favoriteSchema.index({ user: 1, video: 1 }, { unique: true });
+
+// Middleware لتحديث عدد المفضلات عند الحفظ
+favoriteSchema.post('save', async function(doc) {
+  await Video.findByIdAndUpdate(doc.video, { $inc: { favoritesCount: 1 } });
+});
+
+// Middleware لتحديث عدد المفضلات عند الحذف
+favoriteSchema.post('remove', async function(doc) {
+  await Video.findByIdAndUpdate(doc.video, { $inc: { favoritesCount: -1 } });
+});
+
+const Favorite = mongoose.model('Favorite', favoriteSchema);
 
 const seriesSchema = new mongoose.Schema({ 
   title: { type: String, required: true, unique: true },
   description: { type: String },
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
-  imageUrl: { type: String }, // 🔹 رابط صورة المسلسل
+  imageUrl: { type: String },
   episodes: [
     {
       title: { type: String, required: true },
@@ -78,21 +99,17 @@ const seriesSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-
-// 🔴 منع تكرار اسم الحلقة داخل نفس المسلسل
 seriesSchema.index({ 'episodes.title': 1, title: 1 }, { unique: true });
 
 const Series = mongoose.model('Series', seriesSchema);
 
-
 const complaintSchema = new mongoose.Schema({
-  title: { type: String, required: true }, // عنوان الشكوى
-  description: { type: String, required: true }, // وصف الشكوى
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // مقدم الشكوى
-  createdAt: { type: Date, default: Date.now } // تاريخ الإنشاء
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  createdAt: { type: Date, default: Date.now }
 });
 
 const Complaint = mongoose.model('Complaint', complaintSchema);
 
-
-module.exports = { Category, Video, Series ,Complaint };
+module.exports = { Category, Video, Series, Complaint, Favorite };
