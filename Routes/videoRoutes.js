@@ -84,7 +84,7 @@ router.get('/videos/:id', async (req, res) => {
 
         if (!video) {
             return res.status(404).json({ message: 'الفيديو غير موجود' });
-        }
+        } 
 
         // ✅ إرجاع التفاصيل مع روابط الفيديو والصورة والمفضلة
         res.json({
